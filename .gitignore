@@ -1,0 +1,56 @@
+# --- Java / Maven ---
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+!**/maven-wrapper.jar
+hs_err_pid*.log
+replay_pid*.log
+
+# --- Node / Angular ---
+node_modules/
+dist/
+.angular/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# El spec descargado es un artefacto intermedio de `task gen:client`.
+# El cliente generado en src/api SÍ se versiona: es lo que permite que CI
+# detecte deriva entre backend y frontend con un simple git diff.
+frontend/openapi.json
+
+# --- Secretos y entorno ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Modelos de embeddings ---
+# TransformersEmbeddingModel descarga el modelo ONNX (~120-400 MB) en el primer
+# arranque y lo cachea. Es un artefacto reproducible, no fuente.
+.model-cache/
+*.onnx
+
+# --- Datos locales ---
+data/
+*.db
+*.sqlite
+
+# --- IDE / SO ---
+.idea/
+*.iml
+.vscode/
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs ---
+*.log
+logs/
