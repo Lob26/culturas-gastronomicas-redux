@@ -1,0 +1,36 @@
+# Normaliza a LF en el repositorio y deja que cada plataforma haga lo suyo al
+# hacer checkout.
+* text=auto eol=lf
+
+# Los scripts .cmd/.bat DEBEN conservar CRLF: cmd.exe no interpreta
+# correctamente un .cmd con finales de línea LF y el wrapper de Maven falla en
+# Windows con un error que no menciona los saltos de línea.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# El wrapper de Maven para Unix tiene que ser LF aunque se edite en Windows.
+mvnw text eol=lf
+gradlew text eol=lf
+
+# Binarios: sin conversión ni diff textual.
+*.jar   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.onnx  binary
+*.woff  binary
+*.woff2 binary
+
+# El cliente TypeScript generado por Orval se versiona a propósito: es lo que
+# permite que CI detecte deriva entre backend y frontend con un git diff. Se
+# marca como generado para que no ensucie las revisiones.
+frontend/src/api/** linguist-generated=true
+
+# Las migraciones nunca llevan CRLF: Flyway calcula un checksum sobre el
+# contenido y un cambio de fin de línea lo invalidaría, haciendo fallar
+# validate-on-migrate en otra máquina.
+*.sql text eol=lf
