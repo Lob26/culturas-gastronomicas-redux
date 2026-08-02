@@ -50,4 +50,39 @@ public interface RecipeRepository extends JpaRepository<Recipe, Long> {
     Page<Recipe> findAllWithCulture(Pageable pageable);
 
     boolean existsBySlug(String slug);
+
+    /**
+     * Primera imagen de cada receta de una página, en una sola consulta.
+     *
+     * <p>Mismo motivo que los conteos de cultura: pedirla recorriendo
+     * {@code recipe.getImages().get(0)} por fila dispararía una consulta por
+     * receta, que es exactamente el N+1 de los listados de 2023.
+     */
+    @Query("""
+            SELECT m.recipe.id AS recipeId, m.url AS url
+            FROM DishMultimedia m
+            WHERE m.recipe.id IN :ids AND m.position = 1
+            """)
+    java.util.List<RecipeCover> findCoversFor(@Param("ids") java.util.Collection<Long> ids);
+
+    interface RecipeCover {
+        Long getRecipeId();
+
+        String getUrl();
+    }
+
+    /** Ingredientes e imágenes del detalle, cada uno en su consulta. */
+    @Query("""
+            SELECT r FROM Recipe r
+            LEFT JOIN FETCH r.ingredients
+            WHERE r.id = :id
+            """)
+    Optional<Recipe> loadIngredients(@Param("id") Long id);
+
+    @Query("""
+            SELECT r FROM Recipe r
+            LEFT JOIN FETCH r.images
+            WHERE r.id = :id
+            """)
+    Optional<Recipe> loadImages(@Param("id") Long id);
 }

@@ -40,9 +40,12 @@ import java.net.URI;
 public class CultureController {
 
     private final CultureService service;
+    private final co.edu.uniandes.culturas.service.RecipeService recipeService;
 
-    public CultureController(CultureService service) {
+    public CultureController(CultureService service,
+                             co.edu.uniandes.culturas.service.RecipeService recipeService) {
         this.service = service;
+        this.recipeService = recipeService;
     }
 
     @GetMapping
@@ -97,6 +100,27 @@ public class CultureController {
     public CultureDtos.Detail update(@PathVariable String slug,
                                      @Valid @RequestBody CultureDtos.Request request) {
         return service.update(slug, request);
+    }
+
+    /**
+     * Recetas de una cultura, como sub-recurso.
+     *
+     * <p>Paginado igual que el listado general. En 2023 el equivalente era
+     * {@code GET /culture/{id}/recipe/all}, que devolvía la colección completa
+     * y además ni siquiera se llamaba desde el frontend.
+     */
+    @GetMapping("/{slug}/recetas")
+    @Operation(summary = "Recetas de una cultura, paginadas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Listado"),
+            @ApiResponse(responseCode = "404", description = "No existe una cultura con ese slug")
+    })
+    public PagedResponse<co.edu.uniandes.culturas.web.dto.RecipeDtos.Summary> recipes(
+            @PathVariable String slug,
+            @ParameterObject
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC)
+            Pageable pageable) {
+        return recipeService.listByCulture(slug, pageable);
     }
 
     @DeleteMapping("/{slug}")
