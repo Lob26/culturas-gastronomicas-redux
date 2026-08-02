@@ -72,8 +72,16 @@ variable "services" {
       internal_port = 5432
       # 55432 y no 5432: la máquina de desarrollo ya tiene otro Postgres ahí.
       published_port = 55432
-      volume_path    = "/var/lib/postgresql/data"
-      memory_mb      = 1024
+      # /var/lib/postgresql, NO /var/lib/postgresql/data.
+      #
+      # Las imágenes de Postgres 18+ cambiaron la convención: los datos pasan a
+      # un subdirectorio por versión mayor (PGDATA=/var/lib/postgresql/18/docker)
+      # para que pg_upgrade --link pueda trabajar sin cruzar puntos de montaje.
+      # Montando en la ruta antigua el contenedor detecta un volumen suelto en
+      # /var/lib/postgresql/data y aborta el arranque en vez de arriesgar una
+      # actualización silenciosa. Ver docker-library/postgres#1259.
+      volume_path = "/var/lib/postgresql"
+      memory_mb   = 1024
       # Deliberadamente SIN POSTGRES_DB: si se declara, el entrypoint de la
       # imagen crea la base y luego postgresql_database.app fallaría con
       # "already exists". La base la crea Terraform, que es quien la gestiona.
@@ -92,7 +100,13 @@ variable "services" {
       memory_mb      = 512
       # Redis es caché y bus de pub/sub para el fan-out de SSE. Nada que viva
       # sólo en Redis es fuente de verdad, así que no se persiste.
-      command     = ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "384mb", "--maxmemory-policy", "allkeys-lru"]
+      #
+      # Va a través de `sh -c` en lugar de como lista de argumentos porque
+      # desactivar los snapshots en Redis se escribe `--save ''`, con cadena
+      # vacía, y el proveedor de Docker rechaza los elementos vacíos en
+      # `command` ("values for command may not be empty"). El `exec` deja a
+      # redis-server como PID 1 para que reciba las señales de parada.
+      command     = ["sh", "-c", "exec redis-server --save '' --appendonly no --maxmemory 384mb --maxmemory-policy allkeys-lru"]
       healthcheck = { test = ["CMD", "redis-cli", "ping"] }
     }
 

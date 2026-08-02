@@ -36,6 +36,14 @@ resource "docker_container" "this" {
   # Una lista vacía significa "usa el entrypoint de la imagen".
   command = length(var.service.command) > 0 ? var.service.command : null
 
+  # Sin esto el recurso se da por creado en cuanto el contenedor arranca, no
+  # cuando está listo para atender. El proveedor de Postgres se conecta justo
+  # después y encontraría la base todavía iniciando: una carrera que falla de
+  # forma intermitente, que es la peor manera de fallar. Sólo aplica a los
+  # servicios que declaran sonda; para el resto no hay nada que esperar.
+  wait         = var.service.healthcheck != null
+  wait_timeout = 180
+
   networks_advanced {
     name = var.network_name
     # El alias es lo que permite que el backend se conecte a `database:5432`
