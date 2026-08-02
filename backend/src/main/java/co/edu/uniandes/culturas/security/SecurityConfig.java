@@ -76,6 +76,10 @@ public class SecurityConfig {
                         // recibiría un principal nulo y expondría, o reventaría.
                         .requestMatchers("/api/v2/favoritos", "/api/v2/favoritos/**").authenticated()
                         .requestMatchers("/api/v2/recetas/*/valoraciones/mia").authenticated()
+                        // Misma trampa: las recomendaciones se leen con GET y
+                        // salen del token, así que dejarlas caer en la regla
+                        // general de lectura pública les daría un principal nulo.
+                        .requestMatchers("/api/v2/buscar/recomendaciones").authenticated()
 
                         // Lectura del catálogo: pública.
                         .requestMatchers(HttpMethod.GET, "/api/v2/**").permitAll()
