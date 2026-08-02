@@ -1,0 +1,39 @@
+/*
+ * Tailwind 4 + PrimeNG 22.
+ *
+ * Tres detalles delicados:
+ *
+ * 1. `@import "tailwindcss-primeui"`, NO `@plugin`. El paquete publica dos
+ *    builds: `exports["."].style` apunta a v4/index.css (CSS puro) y `main` a
+ *    v3/index.js (plugin de JS para Tailwind 3). Con @plugin se carga el de la
+ *    3 y el resultado es incoherente.
+ *
+ * 2. El orden de capas NO se declara aquí. Lo fija PrimeNG con la opción
+ *    cssLayer de providePrimeNG ("theme, base, primeng"), y es eso lo que hace
+ *    que una utilidad de Tailwind gane a los estilos del componente. Tailwind 3
+ *    necesitaba un bloque @layer manual; la 4 no.
+ *
+ * 3. El selector de modo oscuro va envuelto en :where() para que su
+ *    especificidad sea cero. Sin eso la variante dark ganaría a utilidades que
+ *    deberían mandar sobre ella.
+ *
+ * Nota: en Tailwind 4 el modificador de importancia es sufijo (`p-8!`), no
+ * prefijo (`!p-8`). Casi toda la documentación que se encuentra es de la v3.
+ */
+@import "tailwindcss";
+@import "tailwindcss-primeui";
+
+@custom-variant dark (&:where(.app-dark, .app-dark *));
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  /* Variables del preset de PrimeNG, para que el fondo siga al tema activo. */
+  background: var(--p-content-background);
+  color: var(--p-text-color);
+}
