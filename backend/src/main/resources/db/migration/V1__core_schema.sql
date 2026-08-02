@@ -36,8 +36,12 @@ CREATE TABLE country (
     name       VARCHAR(120) NOT NULL,
     -- ISO 3166-1. En los datos de 2023 Japón estaba como 'JA', que no es un
     -- código válido; el correcto es 'JP'. El CHECK impide que vuelva a pasar.
-    iso2       CHAR(2)      NOT NULL,
-    iso3       CHAR(3),
+    --
+    -- VARCHAR y no CHAR: CHAR en Postgres es bpchar, que rellena con espacios
+    -- hasta la longitud fija, así que 'JP ' y 'JP' dejan de ser intercambiables
+    -- según el contexto de comparación. La longitud ya la garantiza el CHECK.
+    iso2       VARCHAR(2)   NOT NULL,
+    iso3       VARCHAR(3),
 
     version    BIGINT       NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
