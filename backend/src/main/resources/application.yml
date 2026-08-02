@@ -127,11 +127,13 @@ culturas:
     access-key: ${MINIO_ROOT_USER:minioadmin}
     secret-key: ${MINIO_ROOT_PASSWORD:minioadmin}
   security:
-    # Si falta, la aplicación genera uno aleatorio al arrancar: cómodo en
-    # desarrollo, pero invalida todas las sesiones en cada reinicio.
-    jwt-secret: ${JWT_SECRET:}
+    # Terraform lo genera y lo escribe en .env. El valor de reserva sólo sirve
+    # para arrancar sin infraestructura (tests de slice); no protege nada.
+    jwt-secret: ${JWT_SECRET:clave-solo-para-desarrollo-local-sin-valor}
     jwt-ttl: 12h
     api-key: ${CULTURAS_API_KEY:dev-api-key-change-me}
+    allowed-origins:
+      - http://localhost:4200
   jobs:
     link-check:
       # Tope explícito del fan-out. Sin esto los hilos virtuales crearían miles

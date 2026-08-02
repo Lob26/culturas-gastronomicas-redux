@@ -96,12 +96,18 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
         <!--
-          Da NimbusJwtEncoder/NimbusJwtDecoder, con lo que firmar y validar los
-          JWT no necesita ninguna librería extra (jjwt, auth0...).
+          Da NimbusJwtEncoder/NimbusJwtDecoder para firmar y validar los JWT, y
+          además el DSL oauth2ResourceServer con JwtAuthenticationConverter. El
+          módulo -jose por sí solo trae únicamente los codificadores: las clases
+          de servidor de recursos viven en este starter.
+
+          Ojo al nombre: en Boot 4 los starters de OAuth2 llevan prefijo
+          `security-` (spring-boot-starter-security-oauth2-resource-server), no
+          el `spring-boot-starter-oauth2-resource-server` de Boot 3.
         -->
         <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-oauth2-jose</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
         </dependency>
 
         <!-- ======================================================= operación -->
