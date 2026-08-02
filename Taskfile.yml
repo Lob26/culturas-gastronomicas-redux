@@ -10,9 +10,10 @@ version: '3'
 #   task verify  -> todo lo que corre en CI
 
 vars:
-  # Podman delega `compose` en un proveedor externo (docker-compose o
-  # podman-compose). Se puede forzar otro con: task up COMPOSE="docker compose"
-  COMPOSE: '{{.COMPOSE | default "podman compose"}}'
+  # Terraform es la única fuente de verdad de la infraestructura; no hay
+  # compose.yml. Ver infra/.
+  TF: '{{.TF | default "terraform"}}'
+  TFDIR: infra
   CONTAINER: '{{.CONTAINER | default "podman"}}'
   BACKEND: backend
   FRONTEND: frontend
@@ -57,28 +58,51 @@ tasks:
       - cmd: '{{.CONTAINER}} machine start'
         ignore_error: true
 
-  up:
-    desc: Levanta postgres, redis, minio y n8n
+  infra:init:
+    desc: Descarga los proveedores de Terraform
     cmds:
-      - '{{.COMPOSE}} up -d --wait postgres redis minio'
-      - '{{.COMPOSE}} up -d minio-init n8n'
-      - '{{.COMPOSE}} ps'
+      - '{{.TF}} -chdir={{.TFDIR}} init -input=false'
+
+  infra:plan:
+    desc: Muestra qué cambiaría sin aplicar nada
+    cmds:
+      - '{{.TF}} -chdir={{.TFDIR}} plan'
+
+  infra:fmt:
+    desc: Formatea y valida el HCL
+    cmds:
+      - '{{.TF}} -chdir={{.TFDIR}} fmt -recursive'
+      - '{{.TF}} -chdir={{.TFDIR}} validate'
+
+  up:
+    desc: Aplica la infraestructura (postgres, redis, minio, n8n) y genera el .env
+    deps: [infra:init]
+    cmds:
+      - '{{.TF}} -chdir={{.TFDIR}} apply -input=false -auto-approve'
+      - '{{.TF}} -chdir={{.TFDIR}} output -json urls'
 
   down:
-    desc: Detiene el stack (conserva los volúmenes)
+    desc: Destruye los contenedores conservando los datos
     cmds:
-      - '{{.COMPOSE}} down'
+      # Se apuntan sólo los módulos: los volúmenes viven en la raíz y sobreviven
+      # a propósito. Un `destroy` completo es `task nuke`.
+      - '{{.TF}} -chdir={{.TFDIR}} destroy -auto-approve -target=module.base_services -target=module.dependent_services'
 
   nuke:
-    desc: "DESTRUCTIVO: detiene el stack y BORRA todos los datos (Postgres, MinIO, n8n)"
-    prompt: Esto elimina los volúmenes y todos los datos locales. ¿Continuar?
+    desc: "DESTRUCTIVO: destruye todo, incluidos los volúmenes y sus datos"
+    prompt: Esto borra los volúmenes de Postgres, MinIO y n8n con todos sus datos. ¿Continuar?
     cmds:
-      - '{{.COMPOSE}} down -v'
+      - '{{.TF}} -chdir={{.TFDIR}} destroy -auto-approve'
 
   logs:
-    desc: "Sigue los logs. Uso: task logs -- postgres"
+    desc: "Sigue los logs de un servicio. Uso: task logs -- culturas-database"
     cmds:
-      - '{{.COMPOSE}} logs -f {{.CLI_ARGS}}'
+      - '{{.CONTAINER}} logs -f {{.CLI_ARGS}}'
+
+  ps:
+    desc: Estado de los contenedores del proyecto
+    cmds:
+      - '{{.CONTAINER}} ps --filter label=managed-by=terraform'
 
   psql:
     desc: Abre una sesión psql contra la base de la aplicación

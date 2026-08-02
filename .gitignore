@@ -23,6 +23,20 @@ blob-report/
 # detecte deriva entre backend y frontend con un simple git diff.
 frontend/openapi.json
 
+# --- Terraform ---
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*.tfvars
+!*.tfvars.example
+# .terraform.lock.hcl SÍ se versiona: fija los hashes de los proveedores para
+# que todo el mundo resuelva exactamente las mismas versiones.
+
 # --- Secretos y entorno ---
 .env
 .env.*

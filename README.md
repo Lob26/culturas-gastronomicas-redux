@@ -17,29 +17,52 @@ para el porqué de reescribir en lugar de migrar.
 | Frontend | Angular 22 (zoneless, SSR híbrido) · PrimeNG 22 · Tailwind 4 |
 | IA | Spring AI 2.0 · embeddings ONNX locales · Claude para preguntas en lenguaje natural |
 | Automatización | n8n |
-| Contenedores | Podman (Compose Spec estándar, funciona igual con Docker) |
+| Infraestructura | Terraform 1.15 · Podman (funciona igual con Docker) |
 
 ## Requisitos
 
-- **JDK 25** — `scoop install java/temurin25-jdk` (sin admin) o `winget install EclipseAdoptium.Temurin.25.JDK`
-- **Node 22+**
-- **Task** — `scoop install main/task`
-- **Podman** o Docker. En Windows, Podman necesita WSL2:
+```powershell
+scoop bucket add java
+scoop install java/temurin25-jdk main/maven main/task main/terraform
+```
 
-  ```powershell
-  wsl --install     # requiere admin + reinicio
-  ```
+Además **Node 22+** y **Podman** (o Docker). En Windows, Podman necesita WSL2:
 
-  Podman delega `compose` en un proveedor externo; si no está instalado:
-  `scoop install main/docker-compose`.
+```powershell
+wsl --install     # requiere admin + reinicio
+```
 
 ## Arranque
 
 ```bash
-cp .env.example .env
-task setup        # VM de Podman + stack + migraciones + datos de ejemplo
+task setup        # VM de Podman + terraform apply + migraciones + datos de ejemplo
 task dev          # backend (8080) y frontend (4200) en paralelo
 ```
+
+No hay que copiar `.env.example`: Terraform genera el `.env` con secretos
+aleatorios como parte de `task up`.
+
+## Infraestructura
+
+`infra/` es la única fuente de verdad — no hay `compose.yml`. Cuatro proveedores:
+`kreuzwerker/docker` para contenedores, red y volúmenes; `cyrilgdn/postgresql`
+para roles, bases, extensiones y permisos; `aminueza/minio` para el bucket y su
+política de expiración; `hashicorp/random` para los secretos generados.
+
+Todo el stack se describe en un único `map(object)` en `infra/variables.tf` y se
+materializa con `for_each` sobre un módulo local, así que añadir un servicio es
+añadir una entrada, no copiar un bloque de recursos.
+
+```bash
+task infra:plan   # qué cambiaría
+task up           # aplicar
+task down         # destruye contenedores, CONSERVA los datos
+task nuke         # destruye todo, incluidos los volúmenes
+```
+
+`down` y `nuke` son distintos a propósito: los volúmenes se declaran en la raíz
+y no dentro del módulo, precisamente para que el ciclo de vida de los datos no
+esté atado al de los contenedores.
 
 | Servicio | URL |
 |---|---|

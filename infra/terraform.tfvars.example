@@ -1,0 +1,19 @@
+# Copiar a terraform.tfvars y ajustar. terraform.tfvars está en .gitignore.
+# Todo lo de aquí tiene un valor por defecto sensato en variables.tf; este
+# archivo sólo hace falta para desviarse de él.
+
+# environment = "dev"      # "prod" activa restart=always y protege el bucket
+# project     = "culturas" # prefijo de nombres; cámbialo para levantar dos stacks a la vez
+
+# Endpoint de la API de contenedores.
+#   Podman en Windows: "npipe:////./pipe/podman-machine-default"
+#   Podman en Linux:   "unix:///run/user/1000/podman/podman.sock"
+#   Docker:            "unix:///var/run/docker.sock"
+# container_host = "npipe:////./pipe/podman-machine-default"
+
+# Sobrescribe sólo los servicios que quieras cambiar; el resto conserva su
+# valor por defecto. Ojo: al ser un mapa, definirlo aquí REEMPLAZA el default
+# completo, así que hay que declarar todos los servicios si se toca.
+# services = { ... }
+
+# orphan_upload_expiry_days = 7
