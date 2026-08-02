@@ -43,6 +43,11 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/cook-mode.page').then((m) => m.CookModePage),
   },
   {
+    path: 'buscar',
+    loadComponent: () => import('./pages/search.page').then((m) => m.SearchPage),
+    title: 'Buscar · Culturas Gastronómicas',
+  },
+  {
     path: 'entrar',
     loadComponent: () => import('./pages/login.page').then((m) => m.LoginPage),
     title: 'Entrar · Culturas Gastronómicas',

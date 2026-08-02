@@ -349,6 +349,32 @@ test('el frontend renderiza y navega', async ({ page }) => {
   await expect(page.getByRole('heading').first()).toBeVisible();
 });
 
+/**
+ * La búsqueda, desde el navegador.
+ *
+ * En 2023 este botón abría un aviso cuyo cuerpo decía «TO-DO». Aquí se escribe
+ * en el campo y salen resultados que vienen del backend real.
+ */
+test('la búsqueda funciona desde la interfaz y se puede compartir por enlace', async ({ page }) => {
+  await page.goto('/buscar');
+  await page.waitForLoadState('networkidle');
+
+  await page.getByRole('searchbox', { name: /término de búsqueda/i }).fill('carbonara');
+
+  const resultado = page.getByRole('link', { name: /Pasta Carbonara/ });
+  await expect(resultado).toBeVisible({ timeout: 15_000 });
+
+  // El término se refleja en la URL, así que la búsqueda es compartible.
+  await expect(page).toHaveURL(/q=carbonara/);
+
+  // Y se lee al entrar: recargar no la pierde.
+  await page.reload();
+  await expect(page.getByRole('link', { name: /Pasta Carbonara/ })).toBeVisible({ timeout: 15_000 });
+
+  await resultado.click();
+  await page.waitForURL(/\/recetas\/pasta-carbonara/, { timeout: 15_000 });
+});
+
 test('la home se sirve prerrenderizada, con contenido en el HTML', async ({ request }) => {
   // Se pide el HTML en crudo, sin ejecutar JavaScript: si el contenido está
   // ahí, el prerenderizado funciona de verdad y no es una cáscara que se

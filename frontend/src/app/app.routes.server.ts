@@ -19,6 +19,12 @@ export const serverRoutes: ServerRoute[] = [
   { path: 'recetas', renderMode: RenderMode.Prerender },
   { path: 'entrar', renderMode: RenderMode.Prerender },
 
+  // Búsqueda en cliente: el resultado depende de la query string, así que
+  // prerrenderizarla produciría un HTML con la lista vacía que después se
+  // reemplaza — el usuario vería un «nada coincide» parpadear antes de sus
+  // resultados. Además la página escribe en la URL mientras se escribe.
+  { path: 'buscar', renderMode: RenderMode.Client },
+
   { path: 'culturas/:slug', renderMode: RenderMode.Client },
   { path: 'recetas/:slug', renderMode: RenderMode.Client },
   { path: 'recetas/:slug/cocinar', renderMode: RenderMode.Client },

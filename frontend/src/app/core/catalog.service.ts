@@ -7,6 +7,7 @@ import type {
   PagedResponse,
   RecipeDetail,
   RecipeSummary,
+  SearchHit,
 } from './api.types';
 
 /**
@@ -64,6 +65,32 @@ export class CatalogService {
     return httpResource<RecipeDetail>(() => {
       const value = slug();
       return value ? `${this.base}/recetas/${value}` : undefined;
+    });
+  }
+
+  /**
+   * Búsqueda híbrida.
+   *
+   * <p>El término se recorta y se exige un mínimo de dos caracteres antes de
+   * construir la URL. Con menos, el servidor devuelve una lista vacía de todas
+   * formas, así que la petición sería tráfico por nada — y con el término
+   * vacío, además, una por cada pulsación mientras el usuario escribe la
+   * primera letra.
+   */
+  search(term: Signal<string>, limit = 10) {
+    return httpResource<SearchHit[]>(() => {
+      const value = term().trim();
+      return value.length >= 2
+        ? `${this.base}/buscar?q=${encodeURIComponent(value)}&limit=${limit}`
+        : undefined;
+    });
+  }
+
+  /** Recetas parecidas a una dada, por vecindad de vectores. */
+  similar(slug: Signal<string | undefined>, limit = 4) {
+    return httpResource<SearchHit[]>(() => {
+      const value = slug();
+      return value ? `${this.base}/buscar/similares/${value}?limit=${limit}` : undefined;
     });
   }
 }

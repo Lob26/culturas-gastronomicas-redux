@@ -45,6 +45,13 @@ import { AuthService } from './core/auth.service';
               class="hover:text-primary-500"
             >Recetas</a>
           </li>
+          <li>
+            <a
+              routerLink="/buscar"
+              routerLinkActive="text-primary-500 font-medium"
+              class="hover:text-primary-500"
+            >Buscar</a>
+          </li>
         </ul>
 
         <p-button

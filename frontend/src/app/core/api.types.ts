@@ -86,6 +86,28 @@ export interface RecipeDetail {
   images: string[];
 }
 
+/** Un resultado de búsqueda puede ser una receta o una cultura. */
+export type HitType = 'RECIPE' | 'CULTURE';
+
+export interface SearchHit {
+  slug: string;
+  name: string;
+  type: HitType;
+}
+
+/**
+ * En qué se basó la recomendación. `POPULAR` significa arranque en frío: el
+ * usuario aún no ha valorado nada, así que se le devuelve lo más popular que
+ * no conoce. La interfaz titula la sección de otra forma según el valor.
+ */
+export type RecommendationBasis = 'PERSONAL' | 'POPULAR';
+
+export interface Recommendations {
+  results: SearchHit[];
+  basis: RecommendationBasis;
+  seeds: number;
+}
+
 export interface TokenResponse {
   token: string;
   expiresAt: string;
