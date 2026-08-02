@@ -64,6 +64,20 @@ public class Recipe extends BaseEntity {
     @Column(length = 16)
     private Difficulty difficulty;
 
+    /*
+     * Agregados de valoración, desnormalizados para poder ordenar por nota sin
+     * un GROUP BY en cada listado. Los mantiene un trigger de la base, no la
+     * aplicación: así no pueden quedar desfasados porque una ruta de escritura
+     * se olvide de refrescarlos. Por eso son de sólo lectura desde JPA
+     * (insertable/updatable = false): escribirlos desde aquí competiría con el
+     * trigger y ganaría el último en llegar.
+     */
+    @Column(name = "rating_average", precision = 3, scale = 2, insertable = false, updatable = false)
+    private java.math.BigDecimal ratingAverage;
+
+    @Column(name = "rating_count", insertable = false, updatable = false)
+    private Integer ratingCount;
+
     @ToString.Exclude
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "culture_id", nullable = false)
