@@ -69,9 +69,17 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // El orden importa: gana la primera regla que coincida.
+                        // Lo personal va ANTES que la apertura de las lecturas,
+                        // porque «GET /api/v2/favoritos» también es un GET y
+                        // con la regla general quedaría público — el endpoint
+                        // recibiría un principal nulo y expondría, o reventaría.
+                        .requestMatchers("/api/v2/favoritos", "/api/v2/favoritos/**").authenticated()
+                        .requestMatchers("/api/v2/recetas/*/valoraciones/mia").authenticated()
+
                         // Lectura del catálogo: pública.
-                        .requestMatchers(HttpMethod.GET, "/api/v1/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v2/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v2/auth/**").permitAll()
                         // Sondas y documentación.
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**").permitAll()

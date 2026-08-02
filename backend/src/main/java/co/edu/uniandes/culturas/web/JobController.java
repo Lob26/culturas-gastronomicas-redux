@@ -24,7 +24,7 @@ import java.util.Map;
  * significaría mantenerla abierta durante toda la comprobación.
  */
 @RestController
-@RequestMapping("/api/v1/jobs")
+@RequestMapping("/api/v2/jobs")
 @Tag(name = "Trabajos", description = "Verificación de enlaces con progreso en vivo")
 public class JobController {
 
@@ -43,7 +43,7 @@ public class JobController {
         return Map.of(
                 "jobId", job.id(),
                 "total", job.total(),
-                "stream", "/api/v1/jobs/%s/stream".formatted(job.id()));
+                "stream", "/api/v2/jobs/%s/stream".formatted(job.id()));
     }
 
     /**

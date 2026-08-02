@@ -22,7 +22,7 @@ import java.util.List;
  * «TO-DO».
  */
 @RestController
-@RequestMapping("/api/v1/buscar")
+@RequestMapping("/api/v2/buscar")
 @Validated
 @Tag(name = "Búsqueda", description = "Búsqueda híbrida sobre recetas y culturas")
 public class SearchController {

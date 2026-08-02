@@ -27,7 +27,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.URI;
 
 @RestController
-@RequestMapping("/api/v1/recetas")
+@RequestMapping("/api/v2/recetas")
 @Tag(name = "Recetas", description = "Recetas del catálogo, con pasos e ingredientes")
 public class RecipeController {
 
@@ -68,7 +68,7 @@ public class RecipeController {
     })
     public ResponseEntity<RecipeDtos.Detail> create(@Valid @RequestBody RecipeDtos.Request request) {
         RecipeDtos.Detail created = service.create(request);
-        URI location = UriComponentsBuilder.fromPath("/api/v1/recetas/{slug}")
+        URI location = UriComponentsBuilder.fromPath("/api/v2/recetas/{slug}")
                 .buildAndExpand(created.slug())
                 .toUri();
         return ResponseEntity.created(location).body(created);

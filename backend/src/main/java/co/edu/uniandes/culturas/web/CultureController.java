@@ -35,7 +35,7 @@ import java.net.URI;
  * el mismo path sirviera para todo.
  */
 @RestController
-@RequestMapping("/api/v1/culturas")
+@RequestMapping("/api/v2/culturas")
 @Tag(name = "Culturas", description = "Cocinas del mundo recogidas en el catálogo")
 public class CultureController {
 
@@ -84,7 +84,7 @@ public class CultureController {
     })
     public ResponseEntity<CultureDtos.Detail> create(@Valid @RequestBody CultureDtos.Request request) {
         CultureDtos.Detail created = service.create(request);
-        URI location = UriComponentsBuilder.fromPath("/api/v1/culturas/{slug}")
+        URI location = UriComponentsBuilder.fromPath("/api/v2/culturas/{slug}")
                 .buildAndExpand(created.slug())
                 .toUri();
         return ResponseEntity.created(location).body(created);
