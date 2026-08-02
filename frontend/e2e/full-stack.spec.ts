@@ -164,6 +164,38 @@ test('la búsqueda encuentra por lexema, por errata y dentro de los pasos', asyn
   expect((await buscar('esterilla')).map((h: { name: string }) => h.name)).toContain('Sushi Rolls');
 });
 
+/**
+ * El carril semántico, aislado.
+ *
+ * Cada consulta está elegida para que los otros dos carriles no puedan
+ * responderla por construcción: están en inglés contra un catálogo escrito
+ * íntegramente en español, así que no comparten ni lexemas (carril léxico) ni
+ * trigramas suficientes (carril difuso). Si estas pasan, el vector está
+ * haciendo el trabajo.
+ *
+ * Esto es lo que justifica haber elegido un modelo multilingüe en vez del
+ * all-MiniLM-L6-v2 que Spring AI trae por defecto, que es sólo inglés. Sin
+ * este test la elección sería una suposición.
+ */
+test('el carril semántico responde donde el léxico y el difuso no pueden', async () => {
+  const nombres = async (q: string) =>
+    (await (await http.get(`/buscar?q=${encodeURIComponent(q)}&limit=3`)).json())
+      .map((h: { name: string }) => h.name);
+
+  // Ni «raw», ni «fish», ni «seaweed» aparecen en el catálogo. El alga nori sí.
+  expect(await nombres('raw fish with seaweed')).toContain('Sushi Rolls');
+
+  // «creamy» y «pasta» contra una descripción que habla de huevo y guanciale.
+  expect(await nombres('creamy italian pasta dish')).toContain('Pasta Carbonara');
+
+  // Regresión concreta: al indexar también los pasos, éstos eran el 90 % del
+  // texto y su lenguaje procedimental —cortar, calentar, mezclar— es idéntico
+  // en todas las recetas. Eso acercaba entre sí platos que no se parecen y
+  // hundía al que sí correspondía. Con nombre + descripción + cultura, el
+  // acierto es el primero; con los pasos dentro, caía al tercero.
+  expect((await nombres('raw fish with seaweed'))[0]).toBe('Sushi Rolls');
+});
+
 test('la búsqueda no se rompe con entrada hostil', async () => {
   // Con to_tsquery en vez de websearch_to_tsquery, cada una de estas sería
   // un error de sintaxis y un 500.
@@ -214,6 +246,55 @@ test('valorar y guardar en el recetario', async () => {
   // El recetario personal exige identidad aunque sea un GET.
   expect((await http.get('/favoritos')).status()).toBe(401);
   expect((await http.get('/favoritos', { headers: auth() })).status()).toBe(200);
+});
+
+// -------------------------------------------------------- recomendaciones --
+
+test('las recomendaciones pasan de populares a personales al valorar', async () => {
+  // Usuario propio y no el compartido: el test de valoraciones ya le puso un 4
+  // a la carbonara, y un 4 ya es semilla. Reutilizarlo haría que este test
+  // arrancara en caliente y la comprobación de arranque en frío pasaría o
+  // fallaría según el orden de ejecución, que es la definición de test frágil.
+  const nuevo = await http.post('/auth/registro', {
+    data: { username: `rec${Date.now().toString().slice(-9)}`, displayName: 'Recomendaciones', password: 'clave-de-prueba-123' },
+  });
+  expect(nuevo.status()).toBe(201);
+  const propio = { Authorization: `Bearer ${(await nuevo.json()).token}` };
+
+  // Nada que saber de él todavía. Devolver una lista vacía sería técnicamente
+  // honesto e inútil; la reserva por popularidad es lo correcto, y el campo
+  // `basis` lo dice explícitamente para que el cliente pueda titular la
+  // sección de otra forma.
+  const frio = await http.get('/buscar/recomendaciones?limit=5', { headers: propio });
+  expect(frio.status()).toBe(200);
+  const enFrio = await frio.json();
+  expect(enFrio.basis).toBe('POPULAR');
+  expect(enFrio.seeds).toBe(0);
+  expect(enFrio.results.length).toBeGreaterThan(0);
+
+  // Al valorar alto, esa receta pasa a ser semilla y el modo cambia.
+  await http.put('/recetas/sushi-rolls/valoraciones/mia', {
+    headers: propio,
+    data: { score: 5, comment: 'El alga nori marca la diferencia.' },
+  });
+
+  const caliente = await (await http.get('/buscar/recomendaciones?limit=5', { headers: propio })).json();
+  expect(caliente.basis).toBe('PERSONAL');
+  expect(caliente.seeds).toBeGreaterThan(0);
+
+  // Recomendar lo que ya valoraste no es recomendar. La exclusión va en el SQL,
+  // así que esto comprueba el WHERE, no un filtro posterior.
+  expect(caliente.results.map((h: { slug: string }) => h.slug)).not.toContain('sushi-rolls');
+});
+
+test('las recetas parecidas salen de la vecindad de vectores', async () => {
+  const parecidas = await http.get('/buscar/similares/pasta-carbonara?limit=3');
+  expect(parecidas.status()).toBe(200);
+
+  const slugs = (await parecidas.json()).map((h: { slug: string }) => h.slug);
+  expect(slugs.length).toBeGreaterThan(0);
+  // Una receta no se recomienda a sí misma.
+  expect(slugs).not.toContain('pasta-carbonara');
 });
 
 // ----------------------------------------------- trabajos en segundo plano --
