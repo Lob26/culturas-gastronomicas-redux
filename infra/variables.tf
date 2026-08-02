@@ -24,12 +24,17 @@ variable "container_host" {
   description = <<-EOT
     Endpoint de la API de contenedores.
 
-    Podman en Windows: npipe:////./pipe/podman-machine-default
+    Podman en Windows: npipe:////./pipe/docker_engine
     Podman en Linux:   unix:///run/user/1000/podman/podman.sock
     Docker:            unix:///var/run/docker.sock
+
+    Ojo con el nombre en Windows: `podman machine start` publica la API
+    compatible con Docker en el pipe `docker_engine`, no en uno que lleve el
+    nombre de la máquina. Lo confirma la propia salida del arranque:
+    "API forwarding listening on: npipe:////./pipe/docker_engine".
   EOT
   type        = string
-  default     = "npipe:////./pipe/podman-machine-default"
+  default     = "npipe:////./pipe/docker_engine"
 }
 
 # El corazón del diseño: un único mapa describe TODO el stack. Añadir un
