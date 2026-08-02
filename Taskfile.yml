@@ -17,6 +17,11 @@ vars:
   CONTAINER: '{{.CONTAINER | default "podman"}}'
   BACKEND: backend
   FRONTEND: frontend
+  # 4B cuantizado, ~2.5 GB. El modelo se ejecuta una vez dentro del test
+  # end-to-end, no sirve tráfico continuo, así que lo que importa es que se
+  # descargue y arranque rápido, no su techo de calidad. Subir a 8b es
+  # cambiar esta línea.
+  LLM_MODEL: '{{.LLM_MODEL | default "qwen3:4b"}}'
   # En Windows el wrapper es .cmd. Se usa barra normal a propósito: Task
   # interpreta los comandos con un shell POSIX embebido, donde `\` escaparía.
   MVNW: '{{if eq OS "windows"}}./mvnw.cmd{{else}}./mvnw{{end}}'
@@ -82,17 +87,55 @@ tasks:
       - '{{.TF}} -chdir={{.TFDIR}} output -json urls'
 
   down:
-    desc: Destruye los contenedores conservando los datos
+    desc: "Devuelve la máquina: destruye contenedores y apaga la VM de Podman (conserva los datos)"
     cmds:
       # Se apuntan sólo los módulos: los volúmenes viven en la raíz y sobreviven
       # a propósito. Un `destroy` completo es `task nuke`.
       - '{{.TF}} -chdir={{.TFDIR}} destroy -auto-approve -target=module.base_services -target=module.dependent_services'
+      # Detener los contenedores NO libera la memoria: la VM de Podman sigue
+      # arriba reteniendo sus 6 GB hasta que se la para explícitamente. Este es
+      # el motivo de que `down` haga las dos cosas — un `down` que dejara la VM
+      # corriendo no cumpliría lo que su nombre promete.
+      - task: machine:down
+
+  machine:down:
+    desc: Apaga la VM de Podman y libera su memoria
+    cmds:
+      - cmd: '{{.CONTAINER}} machine stop'
+        ignore_error: true
 
   nuke:
     desc: "DESTRUCTIVO: destruye todo, incluidos los volúmenes y sus datos"
     prompt: Esto borra los volúmenes de Postgres, MinIO y n8n con todos sus datos. ¿Continuar?
     cmds:
       - '{{.TF}} -chdir={{.TFDIR}} destroy -auto-approve'
+      - task: machine:down
+
+  # ------------------------------------------------------------------- LLM --
+  # Ollama se instala desde main/ollama, que es SÓLO el binario: sin servicio,
+  # sin autoarranque, sin icono en la bandeja. El paquete con demonio es otro
+  # (extras/ollama-full) y no se usa a propósito — este proyecto no debe dejar
+  # nada residente cuando no se está ejecutando.
+  llm:up:
+    desc: Arranca Ollama en primer plano (Ctrl-C para pararlo)
+    env:
+      # 0 = descarga el modelo de la VRAM en cuanto termina la respuesta. El
+      # valor por defecto son 5 minutos, justo la ventana en la que uno se
+      # cambia a otra cosa y se encuentra la GPU todavía ocupada.
+      OLLAMA_KEEP_ALIVE: '0'
+    cmds:
+      - ollama serve
+
+  llm:pull:
+    desc: Descarga el modelo local (una sola vez, ~2.5 GB)
+    cmds:
+      - ollama pull {{.LLM_MODEL}}
+
+  llm:status:
+    desc: Muestra qué modelos hay cargados en memoria ahora mismo
+    cmds:
+      - cmd: ollama ps
+        ignore_error: true
 
   logs:
     desc: "Sigue los logs de un servicio. Uso: task logs -- culturas-database"
