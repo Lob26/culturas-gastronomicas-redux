@@ -80,6 +80,35 @@ spring:
       max-file-size: 8MB
       max-request-size: 12MB
 
+  ai:
+    embedding:
+      transformer:
+        # El modelo por defecto de Spring AI es all-MiniLM-L6-v2, que es
+        # SÓLO inglés. Aquí no sirve: el catálogo está íntegramente en español
+        # y con ese modelo «algo picante con maíz» y «tortilla de chile»
+        # caerían en zonas distintas del espacio vectorial.
+        #
+        # paraphrase-multilingual-MiniLM-L12-v2 cubre 50 idiomas, produce las
+        # mismas 384 dimensiones (así que la columna vector(384) no cambia) y
+        # está exportado a ONNX por Xenova.
+        onnx:
+          model-uri: https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/onnx/model_quantized.onnx
+        tokenizer:
+          uri: https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/tokenizer.json
+        # Cuantizado (~118 MB) y no fp32 (~470 MB). Se eligió por tamaño de
+        # descarga, no por calidad medida: NO se ha comparado contra el fp32.
+        # Con este corpus las consultas de SearchQualityTest aciertan, así que
+        # no hay evidencia de que la cuantización estorbe — pero tampoco de lo
+        # contrario, y conviene no confundir las dos cosas. Si alguna vez el
+        # ranking se degrada, este es el primer parámetro que hay que probar a
+        # cambiar; el segundo es qué texto se indexa (ver VectorRepository).
+        cache:
+          enabled: true
+          # Descarga única. Ojo: el modelo se carga en el arranque, no en la
+          # primera consulta, así que el primer `bootRun` de una máquina limpia
+          # tarda lo que tarde la descarga.
+          directory: ${user.home}/.cache/culturas/onnx
+
   jackson:
     default-property-inclusion: non_null
     deserialization:

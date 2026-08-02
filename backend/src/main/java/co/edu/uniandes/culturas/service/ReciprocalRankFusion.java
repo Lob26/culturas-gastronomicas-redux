@@ -43,6 +43,19 @@ public final class ReciprocalRankFusion {
      */
     @SafeVarargs
     public static <T> List<T> fuse(Function<T, String> keyOf, List<T>... lists) {
+        return fuse(keyOf, List.of(lists));
+    }
+
+    /**
+     * Igual, cuando el número de listas se decide en tiempo de ejecución.
+     *
+     * <p>Existe porque las recomendaciones lanzan una consulta por semilla y no
+     * saben cuántas serán hasta consultarlas. Pasar eso por la versión varargs
+     * exigiría un {@code toArray(new List[0])}, y ese array crudo borra el tipo:
+     * la inferencia colapsa a {@code Object} y el error sale en el sitio
+     * equivocado. Una sobrecarga cuesta tres líneas y no miente sobre los tipos.
+     */
+    public static <T> List<T> fuse(Function<T, String> keyOf, List<? extends List<T>> lists) {
         Map<String, Double> scores = new LinkedHashMap<>();
         Map<String, T> byKey = new LinkedHashMap<>();
 

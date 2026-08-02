@@ -142,20 +142,26 @@
             <version>${springdoc.version}</version>
         </dependency>
 
+        <!-- ============================================== embeddings (Fase 4) -->
         <!--
-          IA (Fase 4-5): spring-ai-starter-model-transformers,
-          spring-ai-starter-vector-store-pgvector y com.anthropic:anthropic-java.
+          Da un bean EmbeddingModel respaldado por ONNX Runtime, en proceso: no
+          hay servicio que levantar, ni clave que gestionar, ni llamada de red
+          por consulta. El modelo se descarga una vez y queda en caché local.
 
-          Deliberadamente AÚN NO declaradas. Su resolución ya está verificada
-          contra el BOM de Spring AI 2.0.0, pero añadirlas antes de usarlas
-          tiene dos costes reales: la autoconfiguración de PgVectorStore exige
-          un bean EmbeddingModel y rompe el arranque si no está, y
-          TransformersEmbeddingModel descarga ~86 MB de modelo ONNX en el primer
-          arranque. Además pgvector necesita la extensión `vector`, que sólo
-          existe en la imagen de contenedor, no en un Postgres nativo.
-
-          Se incorporan en la Fase 4, junto con el código que las usa.
+          NO se declara spring-ai-starter-vector-store-pgvector, y es a
+          propósito. PgVectorStore crea su propia tabla `vector_store` con una
+          COPIA del contenido y sus metadatos en jsonb. Eso significa dos
+          fuentes de verdad para el mismo texto y un problema de consistencia
+          en cada escritura: editar una receta deja el documento indexado
+          mintiendo hasta que algo lo reindexe. Aquí la columna `embedding`
+          vive en las tablas del dominio, así que el KNN une directamente con
+          la entidad, no hay contenido duplicado y borrar una receta se lleva
+          su vector por FK. Ver docs/adr/0003-embeddings-en-el-dominio.md.
         -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-transformers</artifactId>
+        </dependency>
 
         <!-- ========================================================== tests -->
         <dependency>

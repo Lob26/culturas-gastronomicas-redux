@@ -3,10 +3,12 @@ package co.edu.uniandes.culturas.web;
 import co.edu.uniandes.culturas.jobs.LinkCheckBroadcaster;
 import co.edu.uniandes.culturas.jobs.LinkCheckJob;
 import co.edu.uniandes.culturas.jobs.LinkCheckService;
+import co.edu.uniandes.culturas.jobs.ReindexService;
 import co.edu.uniandes.culturas.web.error.ResourceNotFoundException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,10 +32,38 @@ public class JobController {
 
     private final LinkCheckService service;
     private final LinkCheckBroadcaster broadcaster;
+    private final ReindexService reindex;
 
-    public JobController(LinkCheckService service, LinkCheckBroadcaster broadcaster) {
+    public JobController(LinkCheckService service,
+                         LinkCheckBroadcaster broadcaster,
+                         ReindexService reindex) {
         this.service = service;
         this.broadcaster = broadcaster;
+        this.reindex = reindex;
+    }
+
+    /**
+     * Recalcula los vectores que falten.
+     *
+     * <p>Síncrono, al contrario que el verificador de enlaces: aquel abre
+     * cientos de conexiones y tarda lo que tarde el sitio más lento de
+     * internet, mientras que esto es CPU local sobre las filas pendientes y
+     * termina en segundos. Montar el aparato de SSE alrededor sería complejidad
+     * por simetría.
+     *
+     * <p>Es idempotente, así que no necesita protección contra reintentos: la
+     * segunda llamada seguida no encuentra nada pendiente y no hace nada.
+     */
+    @PostMapping("/reindexar")
+    @Operation(summary = "Calcula los embeddings pendientes del catálogo")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> reindex() {
+        ReindexService.Result result = reindex.reindexPending();
+        return Map.of(
+                "recetas", result.recipes(),
+                "culturas", result.cultures(),
+                "ms", result.millis(),
+                "omitido", result.skipped());
     }
 
     @PostMapping("/verificar-enlaces")
