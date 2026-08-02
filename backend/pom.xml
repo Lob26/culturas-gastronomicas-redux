@@ -136,21 +136,20 @@
             <version>${springdoc.version}</version>
         </dependency>
 
-        <!-- ============================================================= IA -->
-        <!-- Embeddings locales por ONNX: sin clave de API y sin red en runtime. -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-model-transformers</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.anthropic</groupId>
-            <artifactId>anthropic-java</artifactId>
-            <version>${anthropic.version}</version>
-        </dependency>
+        <!--
+          IA (Fase 4-5): spring-ai-starter-model-transformers,
+          spring-ai-starter-vector-store-pgvector y com.anthropic:anthropic-java.
+
+          Deliberadamente AÚN NO declaradas. Su resolución ya está verificada
+          contra el BOM de Spring AI 2.0.0, pero añadirlas antes de usarlas
+          tiene dos costes reales: la autoconfiguración de PgVectorStore exige
+          un bean EmbeddingModel y rompe el arranque si no está, y
+          TransformersEmbeddingModel descarga ~86 MB de modelo ONNX en el primer
+          arranque. Además pgvector necesita la extensión `vector`, que sólo
+          existe en la imagen de contenedor, no en un Postgres nativo.
+
+          Se incorporan en la Fase 4, junto con el código que las usa.
+        -->
 
         <!-- ========================================================== tests -->
         <dependency>
