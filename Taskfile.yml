@@ -26,10 +26,16 @@ vars:
   # interpreta los comandos con un shell POSIX embebido, donde `\` escaparía.
   MVNW: '{{if eq OS "windows"}}./mvnw.cmd{{else}}./mvnw{{end}}'
 
-env:
-  POSTGRES_DB: culturas
-  POSTGRES_USER: culturas
-  POSTGRES_PASSWORD: culturas
+# Las credenciales salen del .env que genera `terraform apply`, no de valores
+# fijos aquí. Terraform crea la contraseña de Postgres con random_password, así
+# que un `POSTGRES_PASSWORD: culturas` escrito a mano no coincide con la que la
+# base tiene de verdad y `task backend:dev` muere con
+# «password authentication failed for user "culturas"» — un fallo que parece de
+# configuración del backend cuando en realidad es de esta línea.
+#
+# `dotenv` y no `env`: en Task, `env` gana sobre `dotenv`, de modo que declarar
+# aquí los mismos nombres volvería a pisar los valores reales.
+dotenv: ['.env']
 
 tasks:
   default:
@@ -151,7 +157,7 @@ tasks:
     desc: Abre una sesión psql contra la base de la aplicación
     interactive: true
     cmds:
-      - '{{.CONTAINER}} exec -it culturas-postgres psql -U $POSTGRES_USER -d $POSTGRES_DB'
+      - '{{.CONTAINER}} exec -it culturas-database psql -U $POSTGRES_USER -d $POSTGRES_DB'
 
   # --------------------------------------------------------------- backend ---
 
@@ -178,6 +184,15 @@ tasks:
     desc: Aplica las migraciones y carga los datos de ejemplo
     cmds:
       - '{{.MVNW}} flyway:migrate -Dflyway.configFiles=flyway.conf'
+
+  reindex:
+    desc: Calcula los embeddings pendientes del catálogo (requiere el backend arriba)
+    cmds:
+      # Idempotente: sólo toca lo que no tiene vector o lo tiene desactualizado,
+      # así que repetirlo no cuesta nada.
+      # Entrecomillado: sin las comillas simples exteriores, YAML ve los dos
+      # puntos de «X-API-Key:» y lo interpreta como un mapa, no como un comando.
+      - 'curl -sf -X POST http://localhost:8080/api/v2/jobs/reindexar -H "X-API-Key: $CULTURAS_API_KEY"'
 
   migrate:info:
     dir: '{{.BACKEND}}'
@@ -231,12 +246,12 @@ tasks:
   n8n:import:
     desc: Importa a n8n los workflows versionados en workflows/
     cmds:
-      - '{{.CONTAINER}} exec culturas-n8n n8n import:workflow --separate --input=/workflows'
+      - '{{.CONTAINER}} exec culturas-automation n8n import:workflow --separate --input=/workflows'
 
   n8n:export:
     desc: Exporta los workflows de n8n al repo para versionarlos
     cmds:
-      - '{{.CONTAINER}} exec culturas-n8n n8n export:workflow --all --separate --output=/workflows'
+      - '{{.CONTAINER}} exec culturas-automation n8n export:workflow --all --separate --output=/workflows'
 
   # ------------------------------------------------------------------ meta --
 
