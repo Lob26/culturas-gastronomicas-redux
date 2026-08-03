@@ -25,11 +25,6 @@ gradlew text eol=lf
 *.woff  binary
 *.woff2 binary
 
-# El cliente TypeScript generado por Orval se versiona a propósito: es lo que
-# permite que CI detecte deriva entre backend y frontend con un git diff. Se
-# marca como generado para que no ensucie las revisiones.
-frontend/src/api/** linguist-generated=true
-
 # Las migraciones nunca llevan CRLF: Flyway calcula un checksum sobre el
 # contenido y un cambio de fin de línea lo invalidaría, haciendo fallar
 # validate-on-migrate en otra máquina.
