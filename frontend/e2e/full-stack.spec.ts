@@ -394,6 +394,191 @@ test('el verificador de enlaces corre en hilos virtuales y emite progreso por SS
   expect(estado.resultados.some((r: { url: string }) => r.url.startsWith('https:https://'))).toBeTruthy();
 });
 
+// ------------------------------------------------------------ flujos SSE --
+
+/**
+ * Lee un flujo SSE durante un rato y devuelve lo recibido.
+ *
+ * <p>No se puede usar el cliente de peticiones de Playwright: espera a que la
+ * respuesta <strong>termine</strong>, y estos dos flujos no terminan solos —el
+ * de estadísticas vive diez minutos y el del catálogo media hora—. El del
+ * verificador de enlaces sí funciona con `http.get` porque se cierra cuando
+ * acaba su trabajo; estos no tienen final.
+ *
+ * <p>Con `fetch` y un AbortController se lee lo que haya llegado y se corta,
+ * que es exactamente lo que hace un cliente de verdad.
+ */
+async function readSse(path: string, ms: number, headers: Record<string, string> = {}): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  let received = '';
+  try {
+    const response = await fetch(`${ORIGIN}${PREFIX}${path}`, { signal: controller.signal, headers });
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      received += decoder.decode(value, { stream: true });
+    }
+  } catch (e) {
+    if ((e as Error).name !== 'AbortError') {
+      throw e;
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  return received;
+}
+
+test('el flujo de estadísticas emite cifras periódicamente', async () => {
+  const flujo = await readSse('/feed/estadisticas', 8_000);
+
+  expect(flujo).toContain('event:estadisticas');
+  const primera = flujo.split('\n').find((linea) => linea.startsWith('data:'))!.slice(5);
+  const cifras = JSON.parse(primera);
+
+  expect(cifras.recetas).toBeGreaterThanOrEqual(5);
+  expect(cifras.momento).toBeTruthy();
+
+  // Emite periódicamente, no una sola vez: en ocho segundos, con un tick cada
+  // cinco, tienen que haber salido al menos dos.
+  expect(flujo.match(/event:estadisticas/g)!.length).toBeGreaterThanOrEqual(2);
+});
+
+/**
+ * El feed del catálogo, que es el que justifica tener Redis.
+ *
+ * Con dos instancias detrás de un balanceador, un bus en memoria sólo avisaría
+ * a los navegadores conectados a la instancia que hizo el cambio; los demás se
+ * quedarían mirando una lista que nunca se actualiza, sin que nada diera error.
+ * Este test comprueba el camino completo: publicar en Redis, recibirlo en el
+ * suscriptor y reenviarlo por SSE.
+ */
+test('crear una receta llega al flujo del catálogo por Redis', async () => {
+  // Se abre el flujo ANTES de escribir; suscribirse después perdería el evento,
+  // que es pub/sub y no una cola con historial.
+  const flujo = readSse('/feed/catalogo', 10_000);
+
+  // Un margen para que la suscripción esté establecida antes de publicar.
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+
+  const nombre = `Prueba Feed ${Date.now().toString().slice(-6)}`;
+  const creada = await http.post('/recetas', {
+    headers: auth(),
+    data: {
+      name: nombre,
+      description: 'Creada por el test del flujo',
+      cultureSlug: 'cocina-italiana',
+      steps: ['Un paso cualquiera'],
+    },
+  });
+  expect(creada.status()).toBe(201);
+  const { slug } = await creada.json();
+
+  const recibido = await flujo;
+  expect(recibido).toContain('event:cambio');
+  expect(recibido).toContain(slug);
+  expect(recibido).toContain('creada');
+
+  // Se limpia lo que este test creó: la base es compartida y dejar recetas de
+  // prueba haría que los recuentos de otros casos dejaran de cuadrar.
+  expect((await http.delete(`/recetas/${slug}`, { headers: auth() })).status()).toBe(204);
+});
+
+// ----------------------------------------------------- operación y límites --
+
+test('cada respuesta lleva identificador de correlación, y respeta el que venga', async () => {
+  const propio = await http.get('/jobs/estadisticas');
+  // Se genera cuando no viene: sin él, depurar en producción es buscar por
+  // marca de tiempo entre las líneas de todas las peticiones simultáneas.
+  expect(propio.headers()['x-request-id']).toMatch(/[0-9a-f-]{8,}/);
+
+  // Y se respeta el de fuera, para que el rastro cruce servicios.
+  const ajeno = await http.get('/jobs/estadisticas', {
+    headers: { 'X-Request-Id': 'traza-de-prueba' },
+  });
+  expect(ajeno.headers()['x-request-id']).toBe('traza-de-prueba');
+
+  // Un identificador con saltos de línea permitiría inyectar entradas falsas
+  // en el registro, así que se limpia en vez de aceptarse tal cual.
+  const sucio = await http.get('/jobs/estadisticas', {
+    headers: { 'X-Request-Id': 'abc<script>' },
+  });
+  expect(sucio.headers()['x-request-id']).toBe('abcscript');
+});
+
+test('las estadísticas cuadran con el catálogo', async () => {
+  const stats = await (await http.get('/jobs/estadisticas')).json();
+
+  expect(stats.culturas).toBeGreaterThanOrEqual(5);
+  expect(stats.recetas).toBeGreaterThanOrEqual(5);
+
+  // Las cinco sembradas tienen vector. NO se exige `indexadas === recetas`
+  // aunque sea la señal que de verdad interesa vigilar: otros casos de esta
+  // misma suite crean recetas, y una receta recién creada no tiene vector
+  // hasta el siguiente reindexado. Afirmar la igualdad haría que este test
+  // fallara según el orden de ejecución y no según el estado del sistema.
+  // Esa vigilancia vive donde corresponde: en el resumen diario de n8n.
+  expect(stats.indexadas).toBeGreaterThanOrEqual(5);
+  expect(stats.indexadas).toBeLessThanOrEqual(stats.recetas);
+});
+
+test('subir una imagen: formato validado, identidad exigida y URL firmada', async () => {
+  // PNG de 1x1 construido a mano; no hace falta un fichero de apoyo.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+
+  // Sin sesión no se sube: consume almacenamiento y queda atribuido.
+  expect(
+    (await http.post('/recetas/pasta-carbonara/imagenes', {
+      multipart: { archivo: { name: 'uno.png', mimeType: 'image/png', buffer: png } },
+    })).status(),
+  ).toBe(401);
+
+  // SVG rechazado: el navegador lo ejecuta como documento, así que admitirlo
+  // convertiría una subida de imagen en XSS almacenado.
+  expect(
+    (await http.post('/recetas/pasta-carbonara/imagenes', {
+      headers: auth(),
+      multipart: { archivo: { name: 'x.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg/>') } },
+    })).status(),
+  ).toBe(422);
+
+  const subida = await http.post('/recetas/pasta-carbonara/imagenes', {
+    headers: auth(),
+    multipart: { archivo: { name: 'uno.png', mimeType: 'image/png', buffer: png } },
+  });
+  expect(subida.status()).toBe(201);
+
+  const { url } = await subida.json();
+  // La URL firmada sirve el objeto directamente desde MinIO, sin pasar por el
+  // backend: si esto devuelve 200, el almacén está de verdad en el circuito.
+  const descarga = await api.get(url);
+  expect(descarga.status()).toBe(200);
+  expect(descarga.headers()['content-type']).toContain('image/png');
+});
+
+test('el respaldo se guarda en el almacén de objetos', async () => {
+  // Sólo ADMIN: el volcado incluye la tabla de usuarios.
+  expect((await http.post('/jobs/respaldo', { headers: auth() })).status()).toBe(403);
+
+  // La clave la genera Terraform con random_password, así que sale del .env
+  // que carga playwright.config; en CI llega del entorno del job.
+  const respaldo = await http.post('/jobs/respaldo', {
+    headers: { 'X-API-Key': process.env.CULTURAS_API_KEY ?? 'dev-api-key-change-me' },
+  });
+  expect(respaldo.status()).toBe(200);
+
+  const resultado = await respaldo.json();
+  // Un respaldo de cero filas es el fallo peligroso: se sube, parece que
+  // funcionó y sólo se descubre al restaurar.
+  expect(resultado.filas).toBeGreaterThan(0);
+  expect(resultado.clave).toMatch(/^respaldos\/catalogo-.*\.json$/);
+});
+
 // --------------------------------------------------------------- navegador --
 
 test('el frontend renderiza y navega', async ({ page }) => {
