@@ -52,6 +52,22 @@ import { AuthService } from './core/auth.service';
               class="hover:text-primary-500"
             >Buscar</a>
           </li>
+          <li>
+            <a
+              routerLink="/preguntar"
+              routerLinkActive="text-primary-500 font-medium"
+              class="hover:text-primary-500"
+            >Preguntar</a>
+          </li>
+          @if (auth.isAuthenticated()) {
+            <li>
+              <a
+                routerLink="/recetario"
+                routerLinkActive="text-primary-500 font-medium"
+                class="hover:text-primary-500"
+              >Mi recetario</a>
+            </li>
+          }
         </ul>
 
         <p-button

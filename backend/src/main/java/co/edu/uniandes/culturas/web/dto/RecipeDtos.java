@@ -48,7 +48,25 @@ public final class RecipeDtos {
             @Schema(description = "Pasos ordenados por posición")
             List<Step> steps,
             List<Ingredient> ingredients,
-            List<String> images
+            List<String> images,
+
+            @Schema(description = "Media de las valoraciones, 0 si nadie ha valorado", example = "4.25")
+            BigDecimal ratingAverage,
+
+            @Schema(description = "Cuántas personas han valorado", example = "12")
+            Integer ratingCount,
+
+            /*
+             * Atribución. Se expone el nombre de quien la creó porque el
+             * catálogo es colaborativo y saber de quién viene una receta forma
+             * parte de poder juzgarla. Es nulo en las recetas sembradas, que no
+             * las creó nadie.
+             *
+             * Es el `username`, no el correo: identifica públicamente sin
+             * filtrar un dato de contacto.
+             */
+            @Schema(description = "Usuario que la añadió; nulo en las recetas de ejemplo", example = "demo")
+            String createdBy
     ) {
     }
 

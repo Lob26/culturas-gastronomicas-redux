@@ -5,11 +5,21 @@ import { TagModule } from 'primeng/tag';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MessageModule } from 'primeng/message';
 import { CatalogService } from '../core/catalog.service';
+import { AuthService } from '../core/auth.service';
+import { SocialService } from '../core/social.service';
+import { RatingsSection } from './ratings.section';
 
 @Component({
   selector: 'app-recipe-detail',
   standalone: true,
-  imports: [RouterLink, ButtonModule, TagModule, SkeletonModule, MessageModule],
+  imports: [
+    RouterLink,
+    ButtonModule,
+    TagModule,
+    SkeletonModule,
+    MessageModule,
+    RatingsSection,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="mx-auto max-w-4xl px-4 py-8">
@@ -26,14 +36,37 @@ import { CatalogService } from '../core/catalog.service';
 
         <div class="flex flex-wrap items-start justify-between gap-4">
           <h1 class="text-3xl font-semibold tracking-tight">{{ r.name }}</h1>
-          <p-button
-            label="Modo cocina"
-            icon="pi pi-play"
-            [routerLink]="['/recetas', r.slug, 'cocinar']"
-          />
+          <div class="flex gap-2">
+            @if (auth.isAuthenticated()) {
+              <p-button
+                [icon]="isFavorite(r.id) ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'"
+                severity="secondary"
+                [outlined]="true"
+                [loading]="savingFavorite()"
+                [ariaLabel]="isFavorite(r.id) ? 'Quitar del recetario' : 'Guardar en el recetario'"
+                (onClick)="toggleFavorite(r.id)"
+              />
+            }
+            <p-button
+              label="Modo cocina"
+              icon="pi pi-play"
+              [routerLink]="['/recetas', r.slug, 'cocinar']"
+            />
+          </div>
         </div>
 
         <p class="mt-3 text-surface-600 dark:text-surface-300">{{ r.description }}</p>
+
+        <!--
+          Atribución: el catálogo es colaborativo y saber de quién viene una
+          receta forma parte de poder juzgarla. Las sembradas no las creó nadie,
+          así que no llevan nada en vez de un «añadido por null».
+        -->
+        @if (r.createdBy) {
+          <p class="mt-2 text-xs uppercase tracking-wide text-surface-400">
+            Añadido por {{ r.createdBy }}
+          </p>
+        }
 
         <div class="mt-4 flex flex-wrap gap-2">
           @if (r.difficulty) {
@@ -92,12 +125,41 @@ import { CatalogService } from '../core/catalog.service';
             </li>
           }
         </ol>
+
+        <app-ratings-section
+          [slug]="r.slug"
+          [average]="r.ratingAverage"
+          [count]="r.ratingCount"
+        />
+
+        <!--
+          «Recetas parecidas» sale de la vecindad de vectores, no de la misma
+          cultura: lo interesante es que relacione un curry con un guiso de otro
+          continente por cómo se cocinan, cosa que un filtro por cultura no
+          puede hacer nunca.
+        -->
+        @if (similar.value()?.length) {
+          <section class="mt-10 border-t border-surface-200 pt-8 dark:border-surface-700">
+            <h2 class="text-xl font-medium">Recetas parecidas</h2>
+            <div class="mt-4 grid gap-3 sm:grid-cols-2">
+              @for (hit of similar.value()!; track hit.slug) {
+                <a
+                  [routerLink]="['/recetas', hit.slug]"
+                  class="rounded-lg border border-surface-200 px-4 py-3 transition
+                         hover:border-primary-400 hover:shadow dark:border-surface-700"
+                >{{ hit.name }}</a>
+              }
+            </div>
+          </section>
+        }
       }
     </section>
   `,
 })
 export class RecipeDetailPage {
   private readonly catalog = inject(CatalogService);
+  private readonly social = inject(SocialService);
+  protected readonly auth = inject(AuthService);
 
   /**
    * Llega del parámetro de ruta gracias a withComponentInputBinding: no hace
@@ -107,6 +169,32 @@ export class RecipeDetailPage {
 
   protected readonly imageFailed = signal(false);
   protected readonly recipe = this.catalog.recipe(computed(() => this.slug()));
+  protected readonly similar = this.social.similar(computed(() => this.slug()));
+
+  /** El recetario sólo se pide con sesión: sin ella el endpoint responde 401. */
+  protected readonly favorites = this.social.favorites(this.auth.isAuthenticated);
+
+  protected readonly savingFavorite = signal(false);
+
+  protected isFavorite(recipeId: number): boolean {
+    return this.favorites.value()?.some(
+      (favorite) => favorite.targetType === 'RECIPE' && favorite.targetId === recipeId,
+    ) ?? false;
+  }
+
+  /**
+   * El servidor decide y devuelve el estado resultante; aquí no se calcula.
+   * Con dos pestañas abiertas, mandar la acción deducida de lo que el cliente
+   * cree saber acabaría invirtiendo el cambio hecho en la otra.
+   */
+  protected async toggleFavorite(recipeId: number): Promise<void> {
+    this.savingFavorite.set(true);
+    try {
+      await this.social.toggleFavorite('RECIPE', recipeId);
+    } finally {
+      this.savingFavorite.set(false);
+    }
+  }
 
   protected minutes(seconds: number): number {
     return Math.round(seconds / 60);

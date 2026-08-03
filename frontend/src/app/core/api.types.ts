@@ -95,6 +95,32 @@ export interface RecipeDetail {
   steps: RecipeStep[];
   ingredients: RecipeIngredient[];
   images: string[];
+  /** Media de las valoraciones; 0 cuando nadie ha valorado todavía. */
+  ratingAverage: number;
+  ratingCount: number;
+  /**
+   * Quién la añadió.
+   *
+   * Opcional y no `string | null`: el backend serializa con
+   * `default-property-inclusion: non_null`, así que en las recetas de ejemplo
+   * —que no creó nadie— la clave no viaja en absoluto.
+   */
+  createdBy?: string;
+}
+
+export interface Rating {
+  score: number;
+  comment: string | null;
+  author: string;
+  createdAt: string;
+}
+
+export type FavoriteTarget = 'RECIPE' | 'CULTURE';
+
+export interface Favorite {
+  targetType: FavoriteTarget;
+  targetId: number;
+  createdAt: string;
 }
 
 /** Un resultado de búsqueda puede ser una receta o una cultura. */

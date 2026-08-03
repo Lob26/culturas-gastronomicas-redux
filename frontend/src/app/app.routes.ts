@@ -48,6 +48,16 @@ export const routes: Routes = [
     title: 'Buscar · Culturas Gastronómicas',
   },
   {
+    path: 'preguntar',
+    loadComponent: () => import('./pages/assistant.page').then((m) => m.AssistantPage),
+    title: 'Preguntar · Culturas Gastronómicas',
+  },
+  {
+    path: 'recetario',
+    loadComponent: () => import('./pages/cookbook.page').then((m) => m.CookbookPage),
+    title: 'Mi recetario · Culturas Gastronómicas',
+  },
+  {
     path: 'entrar',
     loadComponent: () => import('./pages/login.page').then((m) => m.LoginPage),
     title: 'Entrar · Culturas Gastronómicas',

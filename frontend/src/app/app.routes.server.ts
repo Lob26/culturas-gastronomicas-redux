@@ -25,6 +25,12 @@ export const serverRoutes: ServerRoute[] = [
   // resultados. Además la página escribe en la URL mientras se escribe.
   { path: 'buscar', renderMode: RenderMode.Client },
 
+  // Ambas dependen de la sesión, que vive en localStorage y no existe en el
+  // servidor. Prerrenderizarlas serviría el estado «no has entrado» a todo el
+  // mundo, incluido quien sí ha entrado, hasta que hidratara.
+  { path: 'preguntar', renderMode: RenderMode.Client },
+  { path: 'recetario', renderMode: RenderMode.Client },
+
   { path: 'culturas/:slug', renderMode: RenderMode.Client },
   { path: 'recetas/:slug', renderMode: RenderMode.Client },
   { path: 'recetas/:slug/cocinar', renderMode: RenderMode.Client },

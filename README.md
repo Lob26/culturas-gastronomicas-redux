@@ -84,6 +84,22 @@ workflows/    workflows de n8n versionados en JSON
 docs/adr/     decisiones de arquitectura
 ```
 
+## Pantallas
+
+| Ruta | Qué hace | Render |
+|---|---|---|
+| `/` | Portada y, con sesión, «recomendado para ti» | prerender |
+| `/culturas`, `/recetas` | Catálogo paginado | prerender |
+| `/culturas/:slug`, `/recetas/:slug` | Detalle, valoraciones, favorito, recetas parecidas | cliente |
+| `/recetas/:slug/cocinar` | Modo cocina con temporizador y Wake Lock | cliente |
+| `/buscar` | Búsqueda híbrida | cliente |
+| `/preguntar` | Asistente, respuesta en streaming con fuentes | cliente |
+| `/recetario` | Lo que has guardado | cliente |
+
+Las cuatro últimas van en cliente porque dependen de la query string o de la
+sesión, y la sesión vive en `localStorage`, que no existe en el servidor:
+prerrenderizarlas serviría el estado «no has entrado» a todo el mundo.
+
 ## Búsqueda
 
 Tres carriles fusionados con Reciprocal Rank Fusion (k=60), que opera sobre
