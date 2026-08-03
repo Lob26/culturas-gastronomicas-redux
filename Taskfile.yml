@@ -22,9 +22,37 @@ vars:
   # descargue y arranque rápido, no su techo de calidad. Subir a 8b es
   # cambiar esta línea (y OLLAMA_MODEL en el entorno del backend).
   LLM_MODEL: '{{.LLM_MODEL | default "qwen3:4b"}}'
-  # En Windows el wrapper es .cmd. Se usa barra normal a propósito: Task
-  # interpreta los comandos con un shell POSIX embebido, donde `\` escaparía.
-  MVNW: '{{if eq OS "windows"}}./mvnw.cmd{{else}}./mvnw{{end}}'
+  # Invocación del wrapper de Maven. En Windows hace falta este rodeo, y cada
+  # pieza de él responde a un fallo concreto:
+  #
+  #   - `./mvnw.cmd` NO vale. Al ejecutar un .cmd, Windows lo pasa por cmd.exe,
+  #     que no entiende `./` y responde «'.' is not recognized as an internal
+  #     or external command».
+  #   - `mvnw.cmd` a secas tampoco. El shell POSIX de Task sólo busca en $PATH,
+  #     no en el directorio actual: «executable file not found in $PATH».
+  #   - `cmd /C mvnw.cmd` tampoco, y este es el menos evidente: cmd busca en el
+  #     directorio actual salvo que esté definida la variable de entorno
+  #     NoDefaultCurrentDirectoryInExePath, que en algunos entornos —este, sin
+  #     ir más lejos— viene puesta a 1.
+  #
+  # Queda `cmd /C .\mvnw.cmd`, con la ruta relativa explícita. Las cuatro
+  # barras invertidas son dos desescapados encadenados: la plantilla de Task
+  # deja dos, y el shell deja una.
+  #
+  # Esto dejaba rotas TODAS las tareas de Maven —seed, backend:dev,
+  # backend:test, backend:verify, migrate:info— y no se había notado porque
+  # durante el desarrollo el backend se arrancó siempre invocando el wrapper a
+  # mano. Salió a la luz al reconstruir el stack desde cero tras un `nuke`.
+  MVNW: '{{if eq OS "windows"}}cmd /C .\\\\mvnw.cmd{{else}}./mvnw{{end}}'
+
+  # Conexión para el plugin de Flyway. Las variables salen del .env de
+  # Terraform vía `dotenv`, y se expanden en el shell —no en la plantilla—
+  # porque Task resuelve las plantillas antes de que exista el entorno.
+  FLYWAY_ARGS: >-
+    -Dflyway.url=jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+    -Dflyway.user=${POSTGRES_USER}
+    -Dflyway.password=${POSTGRES_PASSWORD}
+    -Dflyway.locations=classpath:db/migration
 
 # Las credenciales salen del .env que genera `terraform apply`, no de valores
 # fijos aquí. Terraform crea la contraseña de Postgres con random_password, así
@@ -200,11 +228,19 @@ tasks:
     cmds:
       - '{{.MVNW}} verify'
 
+  # Las credenciales van por línea de comandos desde el .env que genera
+  # Terraform. Antes las dos tareas apuntaban a un `flyway.conf` que no existe
+  # en el repositorio —ni podría, porque la contraseña la crea
+  # random_password— y fallaban con «Unable to load config file».
+  #
+  # El backend aplica las migraciones solo al arrancar; esto sirve para sembrar
+  # ANTES de levantarlo (que es lo que hace `task setup`) y para consultar el
+  # estado sin arrancarlo.
   seed:
     dir: '{{.BACKEND}}'
     desc: Aplica las migraciones y carga los datos de ejemplo
     cmds:
-      - '{{.MVNW}} flyway:migrate -Dflyway.configFiles=flyway.conf'
+      - '{{.MVNW}} -q flyway:migrate {{.FLYWAY_ARGS}}'
 
   reindex:
     desc: Calcula los embeddings pendientes del catálogo (requiere el backend arriba)
@@ -219,7 +255,7 @@ tasks:
     dir: '{{.BACKEND}}'
     desc: Muestra el estado de las migraciones de Flyway
     cmds:
-      - '{{.MVNW}} flyway:info -Dflyway.configFiles=flyway.conf'
+      - '{{.MVNW}} flyway:info {{.FLYWAY_ARGS}}'
 
   # -------------------------------------------------------------- frontend ---
 
