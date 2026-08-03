@@ -193,6 +193,40 @@ public interface VectorRepository extends JpaRepository<Recipe, Long> {
     List<SearchRepository.SearchHit> mostPopular(@Param("userId") Long userId,
                                                  @Param("limit") int limit);
 
+    /**
+     * Texto completo de unos documentos concretos, para fundamentar una
+     * respuesta.
+     *
+     * <p>Aquí sí entran los pasos, al revés que en el indexado. No es
+     * incoherencia: el vector busca <em>identidad</em> y los pasos la diluyen,
+     * mientras que la respuesta necesita el <em>detalle</em>, y sin los pasos no
+     * se puede responder «¿cuánto hay que cocer la pasta?».
+     */
+    @Query(value = """
+            SELECT r.slug AS slug, r.name AS name, 'RECIPE' AS type,
+                   concat_ws('. ', r.description,
+                             (SELECT string_agg(s.instruction, ' ' ORDER BY s.position)
+                              FROM recipe_step s WHERE s.recipe_id = r.id)) AS text
+            FROM recipe r
+            WHERE r.slug IN (:slugs)
+            UNION ALL
+            SELECT c.slug, c.name, 'CULTURE', c.description
+            FROM gastronomic_culture c
+            WHERE c.slug IN (:slugs)
+            """, nativeQuery = true)
+    List<Document> documentsBySlug(@Param("slugs") List<String> slugs);
+
+    /** Documento del catálogo tal y como se le pasa al modelo. */
+    interface Document {
+        String getSlug();
+
+        String getName();
+
+        String getType();
+
+        String getText();
+    }
+
     /** Proyección para el trabajo de indexado. */
     interface Indexable {
         Long getId();

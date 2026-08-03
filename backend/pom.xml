@@ -163,6 +163,20 @@
             <artifactId>spring-ai-starter-model-transformers</artifactId>
         </dependency>
 
+        <!-- ============================================== asistente (Fase 5) -->
+        <!--
+          SDK oficial de Anthropic. Se usa directamente y no a través de la
+          abstracción ChatModel de Spring AI porque aquí sólo hay un proveedor y
+          no se prevé cambiarlo: la abstracción costaría una capa a cambio de
+          una portabilidad que nadie va a ejercer. Además da acceso sin
+          traducciones al streaming, que es lo que alimenta el SSE.
+        -->
+        <dependency>
+            <groupId>com.anthropic</groupId>
+            <artifactId>anthropic-java</artifactId>
+            <version>${anthropic.version}</version>
+        </dependency>
+
         <!-- ========================================================== tests -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -297,6 +297,39 @@ test('las recetas parecidas salen de la vecindad de vectores', async () => {
   expect(slugs).not.toContain('pasta-carbonara');
 });
 
+// -------------------------------------------------------------- asistente --
+
+/**
+ * El asistente depende de una credencial externa que puede no estar.
+ *
+ * Lo que se comprueba aquí es que su ausencia degrada en vez de romper: el
+ * catálogo entero sigue funcionando y sólo este endpoint se declara no
+ * disponible. Con la clave puesta, la misma petición responde 200 y un flujo
+ * de eventos; ese camino NO lo cubre este test, porque no se puede afirmar que
+ * algo funciona sin haberlo ejecutado.
+ */
+test('el asistente exige identidad y degrada si no está configurado', async () => {
+  // Gasta dinero en un proveedor externo, así que no puede ser público aunque
+  // sea un GET.
+  expect((await http.get('/asistente/preguntar?q=que+lleva+la+carbonara')).status()).toBe(401);
+
+  const respuesta = await http.get('/asistente/preguntar?q=que+lleva+la+carbonara', {
+    headers: auth(),
+  });
+
+  // 503 sin clave, 200 con ella. Se aceptan los dos para que el test valga en
+  // las dos configuraciones en vez de fallar en la que no se dio.
+  expect([200, 503]).toContain(respuesta.status());
+
+  if (respuesta.status() === 503) {
+    // Y cuando se apaga, se apaga en RFC 9457 como todo lo demás.
+    expect(respuesta.headers()['content-type']).toContain('application/problem+json');
+  }
+
+  // Lo importante: el resto del catálogo no se entera.
+  expect((await http.get('/culturas?size=1')).status()).toBe(200);
+});
+
 // ----------------------------------------------- trabajos en segundo plano --
 
 test('el verificador de enlaces corre en hilos virtuales y emite progreso por SSE', async () => {

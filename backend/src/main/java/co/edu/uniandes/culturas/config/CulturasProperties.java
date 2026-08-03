@@ -20,8 +20,29 @@ import java.util.List;
 public record CulturasProperties(
         Media media,
         Security security,
-        Jobs jobs
+        Jobs jobs,
+        Assistant assistant
 ) {
+
+    /**
+     * Respuestas en lenguaje natural sobre el catálogo.
+     *
+     * <p>La clave es una credencial externa: no la genera Terraform y puede no
+     * estar. Es opcional a propósito —{@link #enabled()} lo decide en un solo
+     * sitio— para que la aplicación arranque igual sin ella y sólo ese endpoint
+     * responda 503. Hacerla obligatoria convertiría una función accesoria en un
+     * requisito para que el catálogo funcione.
+     */
+    public record Assistant(
+            String apiKey,
+            @DefaultValue("claude-opus-5") String model,
+            @DefaultValue("6") int contextSize
+    ) {
+
+        public boolean enabled() {
+            return apiKey != null && !apiKey.isBlank();
+        }
+    }
 
     public record Media(
             String endpoint,

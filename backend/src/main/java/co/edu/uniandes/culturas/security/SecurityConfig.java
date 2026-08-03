@@ -80,6 +80,15 @@ public class SecurityConfig {
                         // salen del token, así que dejarlas caer en la regla
                         // general de lectura pública les daría un principal nulo.
                         .requestMatchers("/api/v2/buscar/recomendaciones").authenticated()
+                        // El asistente es un GET, pero cada llamada gasta dinero
+                        // en un proveedor externo. Dejarlo público sería regalar
+                        // un endpoint de facturación a cualquiera con la URL.
+                        //
+                        // PENDIENTE: exigir identidad limita quién puede gastar,
+                        // no cuánto. Falta un límite por usuario —Redis ya está
+                        // en el stack para llevar la cuenta—; sin él, un usuario
+                        // registrado puede vaciar la cuota en un bucle.
+                        .requestMatchers("/api/v2/asistente/**").authenticated()
 
                         // Lectura del catálogo: pública.
                         .requestMatchers(HttpMethod.GET, "/api/v2/**").permitAll()

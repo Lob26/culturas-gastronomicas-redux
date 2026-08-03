@@ -17,11 +17,12 @@ vars:
   CONTAINER: '{{.CONTAINER | default "podman"}}'
   BACKEND: backend
   FRONTEND: frontend
-  # 4B cuantizado, ~2.5 GB. El modelo se ejecuta una vez dentro del test
-  # end-to-end, no sirve tráfico continuo, así que lo que importa es que se
-  # descargue y arranque rápido, no su techo de calidad. Subir a 8b es
-  # cambiar esta línea.
-  LLM_MODEL: '{{.LLM_MODEL | default "qwen3:4b"}}'
+  # No hay variable de modelo local: el asistente llama a la API de Anthropic y
+  # no a un Ollama propio. Un modelo local significaba 2,5 GB descargados, un
+  # proceso más que recordar arrancar y VRAM retenida entre preguntas — mucho
+  # aparato para una función accesoria. El único embedding que sí corre en local
+  # es el de la búsqueda, y ese va incrustado en la JVM sobre ONNX.
+  #
   # En Windows el wrapper es .cmd. Se usa barra normal a propósito: Task
   # interpreta los comandos con un shell POSIX embebido, donde `\` escaparía.
   MVNW: '{{if eq OS "windows"}}./mvnw.cmd{{else}}./mvnw{{end}}'
@@ -125,32 +126,6 @@ tasks:
     cmds:
       - '{{.TF}} -chdir={{.TFDIR}} destroy -auto-approve'
       - task: machine:down
-
-  # ------------------------------------------------------------------- LLM --
-  # Ollama se instala desde main/ollama, que es SÓLO el binario: sin servicio,
-  # sin autoarranque, sin icono en la bandeja. El paquete con demonio es otro
-  # (extras/ollama-full) y no se usa a propósito — este proyecto no debe dejar
-  # nada residente cuando no se está ejecutando.
-  llm:up:
-    desc: Arranca Ollama en primer plano (Ctrl-C para pararlo)
-    env:
-      # 0 = descarga el modelo de la VRAM en cuanto termina la respuesta. El
-      # valor por defecto son 5 minutos, justo la ventana en la que uno se
-      # cambia a otra cosa y se encuentra la GPU todavía ocupada.
-      OLLAMA_KEEP_ALIVE: '0'
-    cmds:
-      - ollama serve
-
-  llm:pull:
-    desc: Descarga el modelo local (una sola vez, ~2.5 GB)
-    cmds:
-      - ollama pull {{.LLM_MODEL}}
-
-  llm:status:
-    desc: Muestra qué modelos hay cargados en memoria ahora mismo
-    cmds:
-      - cmd: ollama ps
-        ignore_error: true
 
   logs:
     desc: "Sigue los logs de un servicio. Uso: task logs -- culturas-database"

@@ -163,6 +163,16 @@ culturas:
     api-key: ${CULTURAS_API_KEY:dev-api-key-change-me}
     allowed-origins:
       - http://localhost:4200
+  assistant:
+    # Credencial externa: no la gestiona Terraform y puede faltar. Sin ella el
+    # endpoint de preguntas responde 503 y el resto de la aplicación funciona
+    # igual.
+    api-key: ${ANTHROPIC_API_KEY:}
+    model: claude-opus-5
+    # Cuántos documentos del catálogo se le pasan como contexto. Más contexto no
+    # es mejor respuesta: con el catálogo entero dentro, el modelo tiende a
+    # resumirlo en vez de responder lo que se le preguntó.
+    context-size: 6
   jobs:
     link-check:
       # Tope explícito del fan-out. Sin esto los hilos virtuales crearían miles
