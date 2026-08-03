@@ -32,11 +32,19 @@ jobs:
           distribution: temurin
           cache: maven
 
-      # `verify` y no `test`: los tests de integración corren en la fase de
-      # verificación, con Testcontainers levantando un Postgres de verdad
-      # —incluida la extensión vector— contra el que se aplican las migraciones.
-      # El runner de GitHub trae Docker, así que no hace falta configurar nada.
-      - name: Compilar y probar
+      # `verify` y no `test` para que también corra failsafe.
+      #
+      # AVISO, para que nadie lea de más en este verde: hoy NO hay ningún test
+      # de integración ni slice de MockMvc. Sólo hay tests unitarios —lógica
+      # pura, sin Spring—, así que la fase de verificación no ejecuta nada
+      # adicional. Las dependencias de Testcontainers están en el pom y failsafe
+      # configurado, pero no hay *IT.java que ejecutar.
+      #
+      # Lo que sí cubre de verdad la frontera HTTP y la base es el job `e2e` de
+      # más abajo, contra Postgres y Redis reales. Este comentario existe porque
+      # un CI verde que parece probar más de lo que prueba es exactamente lo que
+      # tenía el proyecto de 2023.
+      - name: Compilar y probar (unitarios)
         run: ./mvnw --batch-mode verify
         working-directory: backend
 

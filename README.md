@@ -149,8 +149,14 @@ Al terminar, `task down` para la VM de Podman y devuelve la memoria.
 task verify
 ```
 
-Tests unitarios, integración con Testcontainers contra Postgres real, build y
-tests del frontend, y el end-to-end de Playwright.
+Tests unitarios del backend, build y tests unitarios del frontend, y el
+end-to-end de Playwright.
+
+**Lo que todavía no hay:** ni un solo test de integración ni slice de MockMvc.
+Las dependencias de Testcontainers están declaradas y failsafe configurado,
+pero no existe ningún `*IT.java`, así que `verify` no ejecuta nada más que los
+unitarios. Quien mire el verde de CI debe saberlo. Hoy la cobertura de la capa
+HTTP y de la base sale entera del end-to-end.
 
 Ese último es la pieza central: una sola ejecución que recorre infraestructura,
 base de datos, API, seguridad, búsqueda, trabajos en segundo plano y navegador.
