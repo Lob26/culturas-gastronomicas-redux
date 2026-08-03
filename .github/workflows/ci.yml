@@ -128,6 +128,11 @@ jobs:
       POSTGRES_PASSWORD: culturas
       REDIS_HOST: localhost
       REDIS_PORT: '6379'
+      MINIO_HOST: localhost
+      MINIO_PORT: '9000'
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_BUCKET: culturas-media
       JWT_SECRET: clave-de-integracion-continua-sin-valor-fuera-de-aqui
       CULTURAS_API_KEY: ci-api-key
       # No se instala Ollama en el runner: son 2,5 GB de modelo y un minuto de
@@ -152,6 +157,29 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      # MinIO va como paso y no como `services`, aunque Postgres y Redis sí lo
+      # sean. El motivo: los contenedores de `services` no admiten sobrescribir
+      # el comando, y la imagen de MinIO necesita `server /data` — sin él
+      # arranca, imprime la ayuda y se cierra. Además hace falta crear el bucket
+      # después, que en local hace el proveedor aminueza/minio de Terraform.
+      #
+      # Misma imagen exacta que usa infra/variables.tf: un doble distinto en CI
+      # probaría un MinIO que no es el que se ejecuta de verdad.
+      - name: Levantar MinIO y crear el bucket
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 2
+          done
+
+          docker run --rm --network host --entrypoint sh docker.io/minio/mc -c "
+            mc alias set ci http://localhost:9000 minioadmin minioadmin &&
+            mc mb --ignore-existing ci/culturas-media"
 
       # La extensión la crea Terraform en local, y crearla exige superusuario:
       # el rol de la aplicación no lo es ni debe serlo. Aquí hace falta el
