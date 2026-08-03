@@ -3,14 +3,20 @@ package co.edu.uniandes.culturas.service;
 import co.edu.uniandes.culturas.config.CulturasProperties;
 import co.edu.uniandes.culturas.repository.VectorRepository;
 import co.edu.uniandes.culturas.web.dto.SearchDtos;
-import com.anthropic.client.AnthropicClient;
-import com.anthropic.client.okhttp.AnthropicOkHttpClient;
-import com.anthropic.core.http.StreamResponse;
-import com.anthropic.models.messages.MessageCreateParams;
-import com.anthropic.models.messages.RawMessageStreamEvent;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -22,22 +28,23 @@ import java.util.function.Consumer;
  * modelo no sabe nada de este catálogo —no estaba en sus datos de
  * entrenamiento— así que sin ese paso se inventaría recetas con total aplomo.
  *
+ * <p>El modelo corre en Ollama, en la misma máquina. No hay clave de API en
+ * ninguna parte del proyecto ni una sola llamada a un servicio externo: el
+ * catálogo entero se puede ejecutar sin cuenta en ningún sitio. A cambio, el
+ * asistente sólo responde cuando Ollama está levantado, que es un intercambio
+ * deliberado y no una limitación.
+ *
  * <p>Las citas no son decoración. Cada afirmación queda anclada a un documento
  * que el usuario puede abrir, de modo que una respuesta equivocada se puede
- * comprobar en vez de creer. Por eso el prompt exige citar y por eso las
- * fuentes viajan al cliente con su slug.
+ * comprobar en vez de creer. Importa más aquí que con un modelo grande: uno
+ * local de pocos miles de millones de parámetros se sale del guion con más
+ * facilidad, y la cita es lo que permite darse cuenta.
  */
 @Service
 public class RagService {
 
-    /**
-     * Tope de tokens de la respuesta.
-     *
-     * <p>Suficiente para varios párrafos con citas. El límite existe porque es
-     * la única cota dura del coste de una petición: sin él, una pregunta que
-     * invite a divagar puede generar hasta agotar la ventana de contexto.
-     */
-    private static final int MAX_TOKENS = 1024;
+    /** Lo que se espera a que Ollama diga «estoy aquí» antes de darlo por caído. */
+    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(2);
 
     private static final String SYSTEM_PROMPT = """
             Eres el asistente de un catálogo de culturas gastronómicas. Respondes
@@ -61,35 +68,81 @@ public class RagService {
     private final CulturasProperties properties;
 
     /**
-     * Se construye una vez y se reutiliza. El cliente mantiene un pool de
-     * conexiones: crearlo por petición abriría un pool nuevo cada vez, que es el
-     * error de rendimiento clásico con clientes HTTP.
+     * Nulo cuando no hay ningún modelo de chat en el contexto.
      *
-     * <p>Nulo cuando no hay clave, en lugar de dejar el bean sin crear: así el
-     * arranque no depende de una credencial externa y el 503 se decide en el
-     * único sitio que sabe por qué.
+     * <p>{@code ObjectProvider} en lugar de inyección directa para que la
+     * aplicación arranque igual sin la autoconfiguración de Ollama. Que el
+     * catálogo dependa de que exista un LLM sería atar lo esencial a lo
+     * accesorio.
      */
-    private final AnthropicClient client;
+    private final ChatModel chatModel;
 
-    public RagService(SearchService search, VectorRepository vectors, CulturasProperties properties) {
+    /** Cliente para el sondeo de disponibilidad, no para generar. */
+    private final RestClient ollama;
+
+    public RagService(SearchService search,
+                      VectorRepository vectors,
+                      CulturasProperties properties,
+                      ObjectProvider<ChatModel> chatModel,
+                      RestClient.Builder restClients,
+                      @Value("${spring.ai.ollama.base-url:http://localhost:11434}") String ollamaUrl) {
         this.search = search;
         this.vectors = vectors;
         this.properties = properties;
-        this.client = properties.assistant().enabled()
-                ? AnthropicOkHttpClient.builder().apiKey(properties.assistant().apiKey()).build()
-                : null;
+        this.chatModel = chatModel.getIfAvailable();
+        this.ollama = restClients.clone()
+                .baseUrl(ollamaUrl)
+                // Timeout corto y explícito: esto sólo comprueba si hay alguien
+                // al otro lado. Sin él hereda el del sistema, y un sondeo que
+                // tarda 30 s en decir «no está» es peor que no sondear.
+                .requestFactory(probeRequestFactory())
+                .build();
     }
 
+    private static ClientHttpRequestFactory probeRequestFactory() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout((int) PROBE_TIMEOUT.toMillis());
+        factory.setReadTimeout((int) PROBE_TIMEOUT.toMillis());
+        return factory;
+    }
+
+    /** Si hay un modelo de chat configurado. No dice nada de si responde. */
     public boolean enabled() {
-        return client != null;
+        return chatModel != null;
+    }
+
+    /**
+     * Si Ollama está además escuchando ahora mismo.
+     *
+     * <p>Que exista el bean no significa que el proceso esté arriba: el cliente
+     * se construye sin comprobar nada. Sin este sondeo, tener Ollama apagado
+     * daría un 200 seguido de un evento de error a mitad del flujo —porque para
+     * cuando falla la conexión ya se enviaron las cabeceras—, y el cliente
+     * tendría que distinguir «se cayó a medias» de «nunca estuvo».
+     *
+     * <p>Es una petición local de unos milisegundos, y sólo se paga al preguntar.
+     * No se cachea el resultado a propósito: el caso típico es justamente que el
+     * usuario levante Ollama entre una pregunta y la siguiente, y una caché
+     * dejaría el asistente apagado hasta que expirase.
+     */
+    public boolean reachable() {
+        if (chatModel == null) {
+            return false;
+        }
+        try {
+            ollama.get().uri("/api/tags").retrieve().toBodilessEntity();
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     /**
      * Documentos que fundamentan la respuesta a una pregunta.
      *
      * <p>Separado de la generación a propósito: es la mitad comprobable sin
-     * llamar a nadie, y es donde se decide si la respuesta puede ser correcta.
-     * Un fallo de recuperación no se arregla con un prompt mejor.
+     * levantar un modelo, y es donde se decide si la respuesta puede ser
+     * correcta. Un fallo de recuperación no se arregla con un prompt mejor.
      */
     @Transactional(readOnly = true)
     public List<VectorRepository.Document> retrieve(String question) {
@@ -127,33 +180,33 @@ public class RagService {
     /**
      * Genera la respuesta y entrega el texto por trozos según llega.
      *
-     * <p>En streaming y no de una vez porque una respuesta tarda varios segundos
-     * en completarse: sin streaming el usuario mira una pantalla quieta todo ese
-     * rato, sin saber si el sistema está pensando o colgado.
+     * <p>En streaming y no de una vez porque un modelo local en CPU tarda
+     * bastantes segundos: sin streaming el usuario mira una pantalla quieta todo
+     * ese rato, sin saber si el sistema está pensando o colgado. Con streaming
+     * ve la primera palabra en cuanto existe.
      *
      * @param onChunk recibe cada fragmento de texto; lo emite el llamador por SSE
      */
     public void answer(String question,
                        List<VectorRepository.Document> documents,
                        Consumer<String> onChunk) {
-        if (client == null) {
-            throw new IllegalStateException("El asistente está desactivado: falta ANTHROPIC_API_KEY.");
+        if (chatModel == null) {
+            throw new IllegalStateException("No hay ningún modelo de chat configurado.");
         }
 
-        MessageCreateParams params = MessageCreateParams.builder()
-                .model(properties.assistant().model())
-                .maxTokens(MAX_TOKENS)
-                .system(SYSTEM_PROMPT)
-                .addUserMessage(buildPrompt(question, documents))
-                .build();
+        Prompt prompt = new Prompt(List.of(
+                new SystemMessage(SYSTEM_PROMPT),
+                new UserMessage(buildPrompt(question, documents))));
 
-        // try-with-resources: el stream mantiene abierta la conexión HTTP y
-        // dejarla sin cerrar agota el pool tras unas cuantas preguntas.
-        try (StreamResponse<RawMessageStreamEvent> stream = client.messages().createStreaming(params)) {
-            stream.stream()
-                    .flatMap(event -> event.contentBlockDelta().stream())
-                    .flatMap(delta -> delta.delta().text().stream())
-                    .forEach(text -> onChunk.accept(text.text()));
+        // toIterable() y no un subscribe reactivo: este método ya corre en su
+        // propio hilo virtual y el llamador espera un consumo bloqueante. Meter
+        // aquí un scheduler reactivo añadiría un modelo de concurrencia más
+        // para el mismo trabajo.
+        for (ChatResponse response : chatModel.stream(prompt).toIterable()) {
+            String text = response.getResult().getOutput().getText();
+            if (text != null && !text.isEmpty()) {
+                onChunk.accept(text);
+            }
         }
     }
 }

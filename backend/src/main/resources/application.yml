@@ -81,6 +81,37 @@ spring:
       max-request-size: 12MB
 
   ai:
+    # Qué autoconfiguración de IA se activa para cada tipo de modelo.
+    #
+    # Es obligatorio fijarlo: el starter de Ollama trae TAMBIÉN un
+    # OllamaEmbeddingModel, así que con el de transformers en el classpath
+    # habría dos beans EmbeddingModel y el arranque fallaría por ambigüedad.
+    # Los embeddings se quedan en transformers —van incrustados en la JVM y no
+    # necesitan que Ollama esté levantado, cosa que la búsqueda sí necesita en
+    # cada consulta— y el chat va a Ollama.
+    model:
+      embedding: transformers
+      chat: ollama
+
+    ollama:
+      base-url: ${OLLAMA_URL:http://localhost:11434}
+      init:
+        # Que NO intente descargar el modelo al arrancar. Con `always`, un
+        # primer arranque sin el modelo se queda minutos bajando gigas antes de
+        # abrir el puerto, y sin Ollama levantado falla directamente. Descargarlo
+        # es un paso explícito: `task llm:pull`.
+        pull-model-strategy: never
+      chat:
+        options:
+          # 4B cuantizado, ~2,5 GB. Se ejecuta dentro del test end-to-end y no
+          # sirve tráfico continuo, así que pesa más que descargue y arranque
+          # rápido que su techo de calidad. Subir a 8b es cambiar esta línea.
+          model: ${OLLAMA_MODEL:qwen3:4b}
+          # Baja a propósito: esto es responder con unas fuentes delante, no
+          # escribir. Con la temperatura por defecto el modelo adorna, y adornar
+          # aquí significa decir cosas que las fuentes no dicen.
+          temperature: 0.2
+
     embedding:
       transformer:
         # El modelo por defecto de Spring AI es all-MiniLM-L6-v2, que es
@@ -164,15 +195,13 @@ culturas:
     allowed-origins:
       - http://localhost:4200
   assistant:
-    # Credencial externa: no la gestiona Terraform y puede faltar. Sin ella el
-    # endpoint de preguntas responde 503 y el resto de la aplicación funciona
-    # igual.
-    api-key: ${ANTHROPIC_API_KEY:}
-    model: claude-opus-5
     # Cuántos documentos del catálogo se le pasan como contexto. Más contexto no
     # es mejor respuesta: con el catálogo entero dentro, el modelo tiende a
-    # resumirlo en vez de responder lo que se le preguntó.
+    # resumirlo en vez de responder lo que se le preguntó. Y con un modelo local
+    # pequeño el efecto es más acusado, porque su ventana útil es menor que la
+    # nominal.
     context-size: 6
+    timeout: 4m
   jobs:
     link-check:
       # Tope explícito del fan-out. Sin esto los hilos virtuales crearían miles

@@ -45,8 +45,16 @@ public class AssistantController {
 
     private static final Logger log = LoggerFactory.getLogger(AssistantController.class);
 
-    /** Sin tope, una conexión colgada dejaría el hilo ocupado indefinidamente. */
-    private static final long TIMEOUT_MS = 120_000L;
+    /**
+     * Sin tope, una conexión colgada dejaría el hilo ocupado indefinidamente.
+     *
+     * <p>Cinco minutos y no uno: el modelo corre en local y puede ir por CPU.
+     * Este plazo tiene que ser mayor que el de la generación
+     * ({@code culturas.assistant.timeout}) o el emisor cortaría respuestas que
+     * todavía iban a llegar, y el síntoma sería una respuesta truncada sin
+     * ningún error en el log.
+     */
+    private static final long TIMEOUT_MS = 300_000L;
 
     private final RagService rag;
 
@@ -69,9 +77,13 @@ public class AssistantController {
         // petición normal, un 503 es un 503. Una vez emitido el primer evento,
         // el estado ya es 200 y lo único que queda es un evento de error que el
         // cliente tiene que saber interpretar.
-        if (!rag.enabled()) {
+        //
+        // Y se sondea de verdad, no basta con que exista el bean: Ollama es un
+        // proceso aparte que el usuario arranca a mano, así que «configurado» y
+        // «encendido» son cosas distintas.
+        if (!rag.enabled() || !rag.reachable()) {
             throw new ResponseStatusException(SERVICE_UNAVAILABLE,
-                    "El asistente no está configurado: falta ANTHROPIC_API_KEY.");
+                    "El asistente necesita Ollama en marcha. Arráncalo con `task llm:up`.");
         }
 
         List<VectorRepository.Document> sources = rag.retrieve(q);

@@ -31,7 +31,6 @@
         <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
         <springdoc.version>3.0.3</springdoc.version>
         <spring-ai.version>2.0.0</spring-ai.version>
-        <anthropic.version>2.52.0</anthropic.version>
     </properties>
 
     <dependencyManagement>
@@ -165,16 +164,19 @@
 
         <!-- ============================================== asistente (Fase 5) -->
         <!--
-          SDK oficial de Anthropic. Se usa directamente y no a través de la
-          abstracción ChatModel de Spring AI porque aquí sólo hay un proveedor y
-          no se prevé cambiarlo: la abstracción costaría una capa a cambio de
-          una portabilidad que nadie va a ejercer. Además da acceso sin
-          traducciones al streaming, que es lo que alimenta el SSE.
+          Ollama, en local. No hay ninguna clave de API en este proyecto ni
+          ninguna llamada a un proveedor externo: el catálogo se puede ejecutar
+          entero sin cuenta en ningún sitio, que es la razón de haberlo elegido.
+
+          Ojo: este starter también trae un OllamaEmbeddingModel, y con el de
+          transformers ya en el classpath habría DOS beans EmbeddingModel y el
+          arranque fallaría por ambigüedad. Se resuelve en application.yml con
+          spring.ai.model.embedding=transformers y spring.ai.model.chat=ollama,
+          que activan una sola autoconfiguración de cada tipo.
         -->
         <dependency>
-            <groupId>com.anthropic</groupId>
-            <artifactId>anthropic-java</artifactId>
-            <version>${anthropic.version}</version>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-ollama</artifactId>
         </dependency>
 
         <!-- ========================================================== tests -->

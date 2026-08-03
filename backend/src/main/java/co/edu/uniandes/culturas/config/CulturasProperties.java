@@ -27,21 +27,21 @@ public record CulturasProperties(
     /**
      * Respuestas en lenguaje natural sobre el catálogo.
      *
-     * <p>La clave es una credencial externa: no la genera Terraform y puede no
-     * estar. Es opcional a propósito —{@link #enabled()} lo decide en un solo
-     * sitio— para que la aplicación arranque igual sin ella y sólo ese endpoint
-     * responda 503. Hacerla obligatoria convertiría una función accesoria en un
-     * requisito para que el catálogo funcione.
+     * <p>No hay clave ni credencial: el modelo corre en Ollama, en local. Qué
+     * modelo se usa lo decide {@code spring.ai.ollama.chat.options.model} y no
+     * este record, para que no haya dos sitios donde configurar lo mismo y se
+     * puedan contradecir.
      */
     public record Assistant(
-            String apiKey,
-            @DefaultValue("claude-opus-5") String model,
-            @DefaultValue("6") int contextSize
+            @DefaultValue("6") int contextSize,
+            /*
+             * Tope de espera de una respuesta completa. Un modelo local en CPU
+             * es lento: 4 minutos parecen muchos hasta que se mide qwen3:4b
+             * generando varios párrafos sin GPU. Aun así hay tope, porque una
+             * generación que no termina nunca retendría el hilo y el emisor SSE.
+             */
+            @DefaultValue("4m") Duration timeout
     ) {
-
-        public boolean enabled() {
-            return apiKey != null && !apiKey.isBlank();
-        }
     }
 
     public record Media(

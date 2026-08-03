@@ -122,6 +122,13 @@ jobs:
       REDIS_PORT: '6379'
       JWT_SECRET: clave-de-integracion-continua-sin-valor-fuera-de-aqui
       CULTURAS_API_KEY: ci-api-key
+      # No se instala Ollama en el runner: son 2,5 GB de modelo y un minuto de
+      # generación por CPU para comprobar una función accesoria. Aquí el
+      # asistente responde 503, y su test cubre exactamente esa degradación. El
+      # camino completo se ejerce en local con `task llm:up` — ver README.
+      #
+      # Tampoco hay ninguna clave de API que configurar como secreto de
+      # GitHub: este proyecto no llama a ningún servicio externo.
 
     steps:
       - uses: actions/checkout@v5
