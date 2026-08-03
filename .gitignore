@@ -68,3 +68,12 @@ desktop.ini
 # --- Logs ---
 *.log
 logs/
+
+# --- Basura de Podman en Windows ---
+# `podman machine ssh` invoca a ssh con -o UserKnownHostsFile=NUL, contando con
+# que NUL sea el dispositivo nulo de Windows. Bajo un shell POSIX —Git Bash, o
+# el shell embebido con el que Task ejecuta los comandos— NUL es un nombre de
+# archivo relativo cualquiera, así que ssh escribe ahí la clave del anfitrión y
+# deja un archivo en la raíz del repositorio. Lo genera `task up` al detectar la
+# puerta de enlace de la VM.
+NUL
