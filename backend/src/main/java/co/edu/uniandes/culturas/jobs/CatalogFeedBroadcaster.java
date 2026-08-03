@@ -3,9 +3,6 @@ package co.edu.uniandes.culturas.jobs;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
@@ -129,15 +126,20 @@ public class CatalogFeedBroadcaster {
     /**
      * Suscripción al canal de Redis.
      *
-     * <p>Va aquí y no en una clase de configuración aparte para que el que lee
-     * vea de un vistazo de dónde salen los mensajes que reparte esta clase.
+     * <p>Se registra sobre el contenedor que ya autoconfigura Spring Boot en
+     * lugar de crear uno propio. Tener dos contenedores funciona —lo hacía—
+     * pero significa dos conexiones dedicadas a pub/sub para escuchar un único
+     * canal, y además deja dos beans del mismo tipo, de modo que cualquier
+     * inyección por tipo pasa a ser ambigua. Lo descubrió SocialAndInfraIT al
+     * pedir el contenedor: «expected single matching bean but found 2».
+     *
+     * <p>Va aquí y no en una clase de configuración aparte para que quien lea
+     * esta clase vea de un vistazo de dónde salen los mensajes que reparte.
      */
-    @Configuration
+    @Component
     static class Subscription {
 
-        @Bean
-        RedisMessageListenerContainer catalogListenerContainer(RedisConnectionFactory factory,
-                                                               CatalogFeedBroadcaster broadcaster) {
+        Subscription(RedisMessageListenerContainer container, CatalogFeedBroadcaster broadcaster) {
             MessageListenerAdapter adapter = new MessageListenerAdapter(broadcaster, "onMessage");
 
             // IMPRESCINDIBLE, y falla en silencio si falta: MessageListenerAdapter
@@ -150,10 +152,7 @@ public class CatalogFeedBroadcaster {
             adapter.setSerializer(new StringRedisSerializer());
             adapter.afterPropertiesSet();
 
-            RedisMessageListenerContainer container = new RedisMessageListenerContainer();
-            container.setConnectionFactory(factory);
             container.addMessageListener(adapter, new ChannelTopic(CatalogEvents.CHANNEL));
-            return container;
         }
     }
 }

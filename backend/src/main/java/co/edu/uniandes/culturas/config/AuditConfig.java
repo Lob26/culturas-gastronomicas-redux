@@ -3,16 +3,25 @@ package co.edu.uniandes.culturas.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.domain.AuditorAware;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.Optional;
 
 /**
- * Resuelve quién está haciendo la escritura para rellenar {@code createdBy} y
- * {@code updatedBy}.
+ * Habilita la auditoría JPA y resuelve quién está haciendo la escritura para
+ * rellenar {@code createdBy} y {@code updatedBy}.
+ *
+ * <p>{@code @EnableJpaAuditing} está aquí y no en la clase de aplicación a
+ * propósito. Ahí, {@code @WebMvcTest} lo aplicaba —localiza la clase
+ * {@code @SpringBootConfiguration} y hereda sus anotaciones— y arrastraba JPA a
+ * un corte de MVC que no tiene base de datos, fallando con «JPA metamodel must
+ * not be empty». En una {@code @Configuration} normal, el filtro del corte la
+ * excluye y el test arranca con lo que de verdad necesita.
  */
 @Configuration
+@EnableJpaAuditing(auditorAwareRef = "auditorAware")
 public class AuditConfig {
 
     /**

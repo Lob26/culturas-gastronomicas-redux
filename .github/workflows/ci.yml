@@ -32,19 +32,19 @@ jobs:
           distribution: temurin
           cache: maven
 
-      # `verify` y no `test` para que también corra failsafe.
+      # `verify` y no `test`: surefire corre los unitarios y los cortes de
+      # MockMvc, y failsafe los *IT contra Postgres y Redis de verdad, que
+      # Testcontainers levanta por su cuenta. El runner de GitHub trae Docker,
+      # así que no hace falta declarar servicios para este job.
       #
-      # AVISO, para que nadie lea de más en este verde: hoy NO hay ningún test
-      # de integración ni slice de MockMvc. Sólo hay tests unitarios —lógica
-      # pura, sin Spring—, así que la fase de verificación no ejecuta nada
-      # adicional. Las dependencias de Testcontainers están en el pom y failsafe
-      # configurado, pero no hay *IT.java que ejecutar.
+      # Los contenedores se levantan UNA vez para toda la suite: el contexto de
+      # Spring se cachea porque todos los tests de integración comparten
+      # configuración, y con él los contenedores.
       #
-      # Lo que sí cubre de verdad la frontera HTTP y la base es el job `e2e` de
-      # más abajo, contra Postgres y Redis reales. Este comentario existe porque
-      # un CI verde que parece probar más de lo que prueba es exactamente lo que
-      # tenía el proyecto de 2023.
-      - name: Compilar y probar (unitarios)
+      # No descarga el modelo de embeddings: el perfil `test` apaga la
+      # autoconfiguración de IA y los tests aportan un sustituto determinista.
+      # Sin eso, cada arranque de contexto se bajaría 118 MB de HuggingFace.
+      - name: Compilar y probar (unitarios, cortes e integración)
         run: ./mvnw --batch-mode verify
         working-directory: backend
 
@@ -55,7 +55,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: informes-backend
-          path: backend/target/surefire-reports/
+          path: |
+            backend/target/surefire-reports/
+            backend/target/failsafe-reports/
           if-no-files-found: ignore
 
   frontend:

@@ -234,6 +234,26 @@ spring:
       hibernate:
         # En tests sí interesa ver el SQL cuando algo falla.
         format_sql: true
+  ai:
+    # Se apagan las dos autoconfiguraciones de IA y los tests aportan sus
+    # propios beans.
+    #
+    # No es por comodidad: la de transformers descarga 118 MB de ONNX al
+    # arrancar el contexto, lo que ataría la suite a la red y a HuggingFace
+    # para comprobar cosas que no tienen nada que ver con los vectores. Y la de
+    # Ollama daría un ChatModel que apunta a un proceso que en CI no existe.
+    #
+    # El sustituto del embedding vive en TestContainers: deriva el vector del
+    # texto, así que es determinista y distingue documentos, que es lo único
+    # que necesitan los tests de indexado y vecindad.
+    model:
+      embedding: none
+      chat: none
+  # Cupo pequeño para poder agotarlo en un test sin encadenar diez llamadas.
+  # El valor real vive en el bloque por defecto.
+culturas:
+  limits:
+    assistant-per-hour: 3
 logging:
   level:
     org.hibernate.SQL: DEBUG

@@ -1,6 +1,7 @@
 package co.edu.uniandes.culturas.web.error;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
@@ -188,6 +190,82 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 HttpStatus.BAD_REQUEST, "Alguno de los campos enviados no es válido.");
         problem.setType(TYPE_VALIDATION);
         problem.setTitle("Validación fallida");
+        problem.setProperty("timestamp", Instant.now());
+        problem.setProperty("errores", errors);
+
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    /**
+     * Validación de parámetros por la vía de {@code @Validated}.
+     *
+     * <p>Hay DOS caminos para lo mismo y sólo se disparan uno u otro:
+     * <ul>
+     *   <li>Con {@code @Validated} en la clase, Spring crea un proxy y lanza
+     *       {@code ConstraintViolationException} — este manejador.
+     *   <li>Sin ella, la validación de métodos incorporada desde Spring 6.1
+     *       lanza {@code HandlerMethodValidationException} — el de abajo.
+     * </ul>
+     *
+     * <p>Se cubren los dos porque el proyecto usa {@code @Validated} en unos
+     * controladores y no en otros, y porque quitarla de uno cambiaría en
+     * silencio de rama. Sin ninguno de los dos, {@code ?limit=999} contra un
+     * {@code @Max(50)} salía como <strong>500</strong>: un error del cliente
+     * disfrazado de avería del servidor, que además dispara alertas que no
+     * corresponden.
+     *
+     * <p>Lo detectó ApiContractIT comprobando los límites del parámetro de
+     * búsqueda; no se había notado porque la interfaz nunca manda un límite
+     * fuera de rango.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    ResponseEntity<ProblemDetail> handleConstraintViolation(ConstraintViolationException ex,
+                                                           HttpServletRequest request) {
+        List<Map<String, String>> errors = ex.getConstraintViolations().stream()
+                .map(violation -> Map.of(
+                        // El path incluye el nombre del método: se queda el
+                        // último segmento, que es el del parámetro.
+                        "campo", lastSegment(violation.getPropertyPath().toString()),
+                        "mensaje", violation.getMessage()))
+                .toList();
+
+        ProblemDetail problem = base(HttpStatus.BAD_REQUEST,
+                "Alguno de los parámetros de la petición no es válido.", TYPE_VALIDATION, request);
+        problem.setTitle("Parámetros inválidos");
+        problem.setProperty("errores", errors);
+
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    private static String lastSegment(String path) {
+        int dot = path.lastIndexOf('.');
+        return dot < 0 ? path : path.substring(dot + 1);
+    }
+
+    /**
+     * Validación de <strong>parámetros</strong>, no de cuerpo.
+     *
+     * <p>La rama sin {@code @Validated}: desde Spring 6.1 la validación de
+     * argumentos de controlador está incorporada y lanza esto en vez de
+     * {@code MethodArgumentNotValidException}, que sólo cubre el cuerpo.
+     */
+    @Override
+    protected ResponseEntity<Object> handleHandlerMethodValidationException(
+            HandlerMethodValidationException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+
+        List<Map<String, String>> errors = ex.getParameterValidationResults().stream()
+                .flatMap(result -> result.getResolvableErrors().stream()
+                        .map(error -> Map.of(
+                                "campo", result.getMethodParameter().getParameterName() == null
+                                        ? "parámetro" : result.getMethodParameter().getParameterName(),
+                                "mensaje", error.getDefaultMessage() == null
+                                        ? "valor inválido" : error.getDefaultMessage())))
+                .toList();
+
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Alguno de los parámetros de la petición no es válido.");
+        problem.setType(TYPE_VALIDATION);
+        problem.setTitle("Parámetros inválidos");
         problem.setProperty("timestamp", Instant.now());
         problem.setProperty("errores", errors);
 

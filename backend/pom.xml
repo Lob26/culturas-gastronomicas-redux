@@ -224,6 +224,19 @@
             <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          MockMvc y @WebMvcTest. En Boot 4 salieron de spring-boot-test-autoconfigure
+          a su propio módulo y el starter de test ya NO los arrastra, así que hay
+          que declararlo: sin él, @AutoConfigureMockMvc no compila y el error
+          —«package org.springframework.boot.test.autoconfigure.web.servlet does
+          not exist»— apunta al paquete de Boot 3, que es justo el que cambió.
+          El paquete nuevo es org.springframework.boot.webmvc.test.autoconfigure.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>

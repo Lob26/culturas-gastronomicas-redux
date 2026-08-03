@@ -165,14 +165,26 @@ Al terminar, `task down` para la VM de Podman y devuelve la memoria.
 task verify
 ```
 
-Tests unitarios del backend, build y tests unitarios del frontend, y el
-end-to-end de Playwright.
+Cuatro niveles, cada uno probando lo que sólo él puede probar:
 
-**Lo que todavía no hay:** ni un solo test de integración ni slice de MockMvc.
-Las dependencias de Testcontainers están declaradas y failsafe configurado,
-pero no existe ningún `*IT.java`, así que `verify` no ejecuta nada más que los
-unitarios. Quien mire el verde de CI debe saberlo. Hoy la cobertura de la capa
-HTTP y de la base sale entera del end-to-end.
+| Nivel | Cuántos | Contra qué | Qué cubre |
+|---|---|---|---|
+| Unitarios | 34 | nada, lógica pura | fusión RRF, slugs, duración de pasos, prompt del asistente |
+| Cortes de MockMvc | 18 | servicios dobles | validación de entrada, traducción a RFC 9457, negociación de contenido |
+| Integración | 39 | Postgres + Redis reales (Testcontainers) | esquema, restricciones, concurrencia, autorización, pub/sub, cupos |
+| End-to-end | 27 | el stack entero + navegador | los recorridos completos, con Ollama si está en marcha |
+
+El énfasis está en los caminos que **fallan**. El feliz lo cubre el end-to-end;
+lo que rara vez se prueba —y donde se esconden los fallos de seguridad y los
+500 evitables— es qué pasa cuando el cliente se equivoca: cuerpos malformados,
+parámetros fuera de rango, duplicados, escrituras concurrentes, tokens
+inventados, cupos agotados.
+
+Los tests de integración levantan Postgres con pgvector una sola vez para toda
+la suite y **no** descargan el modelo de embeddings: el perfil `test` apaga la
+autoconfiguración de IA y aporta un sustituto determinista que deriva el vector
+del texto. Lo que ese sustituto no puede comprobar —que los resultados
+semánticos tengan sentido— lo comprueba el end-to-end contra el modelo real.
 
 Ese último es la pieza central: una sola ejecución que recorre infraestructura,
 base de datos, API, seguridad, búsqueda, trabajos en segundo plano y navegador.
