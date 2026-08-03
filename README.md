@@ -15,7 +15,7 @@ para el porqué de reescribir en lugar de migrar.
 | Backend | Java 25 LTS · Spring Boot 4.1 · Spring Security 7.1 · Hibernate 7.4 |
 | Datos | PostgreSQL 18 + pgvector · Redis 8 · MinIO · Flyway |
 | Frontend | Angular 22 (zoneless, SSR híbrido) · PrimeNG 22 · Tailwind 4 |
-| IA | Spring AI 2.0 · embeddings ONNX locales · Claude para preguntas en lenguaje natural |
+| IA | Spring AI 2.0 · embeddings ONNX en proceso · Ollama para preguntas en lenguaje natural |
 | Automatización | n8n |
 | Infraestructura | Terraform 1.15 · Podman (funciona igual con Docker) |
 
@@ -111,8 +111,42 @@ task reindex    # calcula los embeddings pendientes (idempotente)
 
 ## Verificación
 
+### El end-to-end completo, de cero
+
+Cuatro terminales, porque tres de las piezas se quedan en primer plano:
+
 ```bash
-task verify     # lo mismo que corre en CI
+# 1 — infraestructura (Postgres, Redis, MinIO, n8n) y datos de ejemplo
+task setup
+
+# 2 — backend
+task backend:dev
+
+# 3 — el modelo local. Sólo lo necesita el asistente.
+task llm:pull        # una vez, ~2,5 GB
+task llm:up          # se queda en primer plano; Ctrl-C para pararlo
+
+# 4 — los tests. Levanta el dev server de Angular por su cuenta.
+task reindex         # calcula los embeddings (el backend tiene que estar arriba)
+task e2e
+```
+
+`task e2e` **no necesita el paso 3**: sin Ollama el asistente responde 503 y su
+test comprueba justamente esa degradación. Con Ollama en marcha, el mismo test
+consume el flujo de verdad y verifica que la respuesta cita sus fuentes. Las dos
+ejecuciones son verdes; la segunda cubre más.
+
+El orden importa en un punto: `task reindex` va **después** de que el backend
+arranque y **antes** de `task e2e`, porque el carril semántico necesita vectores
+y sin ellos la búsqueda degrada a dos carriles — el test que comprueba el
+tercero fallaría con razón.
+
+Al terminar, `task down` para la VM de Podman y devuelve la memoria.
+
+### Lo que corre en CI
+
+```bash
+task verify
 ```
 
 Tests unitarios, integración con Testcontainers contra Postgres real, build y
@@ -135,9 +169,17 @@ el test no diga sólo que la reescritura funciona sino en qué se diferencia.
   borrar lo que creó, y eso se valida en el servidor, no ocultando botones.
 - Los textos de interfaz y la documentación están en español; los identificadores,
   logs e infraestructura en inglés, siguiendo la convención del repositorio original.
-- El asistente de preguntas en lenguaje natural (`/api/v2/asistente/preguntar`)
-  necesita `ANTHROPIC_API_KEY` en el entorno. Sin ella responde **503** y todo lo
-  demás funciona igual: es una función accesoria y no un requisito para que el
-  catálogo sirva. Exige identidad aunque sea un GET, porque cada llamada gasta
-  dinero en un proveedor externo. **Pendiente**: eso limita quién puede gastar,
-  no cuánto — falta un límite por usuario, para el que Redis ya está en el stack.
+- **No hay ninguna clave de API en este proyecto.** El asistente
+  (`/api/v2/asistente/preguntar`) corre sobre Ollama en la misma máquina, y los
+  embeddings de la búsqueda van incrustados en la JVM sobre ONNX. Todo el
+  catálogo se ejecuta sin cuenta en ningún servicio.
+- Con Ollama parado, el asistente responde **503** y todo lo demás funciona
+  igual: es una función accesoria, no un requisito para que el catálogo sirva.
+  Se sondea de verdad si el proceso está escuchando, porque «configurado» y
+  «encendido» no son lo mismo cuando el modelo es un proceso que se arranca a
+  mano.
+- El asistente exige identidad aunque sea un GET: una generación local ocupa CPU
+  o GPU durante segundos, así que dejarlo abierto sería regalar un botón de
+  denegación de servicio. **Pendiente**: eso limita quién puede lanzarlo, no con
+  qué frecuencia — falta un límite por usuario, para el que Redis ya está en el
+  stack.

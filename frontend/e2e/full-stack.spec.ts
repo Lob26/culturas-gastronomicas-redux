@@ -300,33 +300,70 @@ test('las recetas parecidas salen de la vecindad de vectores', async () => {
 // -------------------------------------------------------------- asistente --
 
 /**
- * El asistente depende de una credencial externa que puede no estar.
+ * El asistente necesita Ollama levantado, y Ollama se arranca a mano.
  *
- * Lo que se comprueba aquí es que su ausencia degrada en vez de romper: el
- * catálogo entero sigue funcionando y sólo este endpoint se declara no
- * disponible. Con la clave puesta, la misma petición responde 200 y un flujo
- * de eventos; ese camino NO lo cubre este test, porque no se puede afirmar que
- * algo funciona sin haberlo ejecutado.
+ * El test cubre las dos situaciones porque las dos son correctas: con Ollama
+ * parado tiene que degradar —503 y el resto del catálogo intacto— y con Ollama
+ * en marcha tiene que responder de verdad. Fijar sólo una haría fallar el test
+ * en la mitad de las ejecuciones legítimas.
+ *
+ * Para forzar el camino completo: `task llm:up` en otra terminal y repetir.
  */
-test('el asistente exige identidad y degrada si no está configurado', async () => {
-  // Gasta dinero en un proveedor externo, así que no puede ser público aunque
-  // sea un GET.
+test('el asistente exige identidad, y responde o degrada según Ollama', async () => {
+  // Una generación local ocupa CPU o GPU durante segundos, así que dejarlo
+  // abierto sería regalar un botón de denegación de servicio.
   expect((await http.get('/asistente/preguntar?q=que+lleva+la+carbonara')).status()).toBe(401);
 
-  const respuesta = await http.get('/asistente/preguntar?q=que+lleva+la+carbonara', {
+  // Un modelo local en CPU tarda alrededor de un minuto en responder esto. El
+  // plazo por defecto de Playwright son 30 s, así que sin esta línea el test
+  // fallaría por reloj justo cuando el asistente SÍ está funcionando.
+  test.setTimeout(300_000);
+
+  const respuesta = await http.get('/asistente/preguntar?q=' + encodeURIComponent('¿Qué lleva la carbonara?'), {
     headers: auth(),
+    timeout: 300_000,
   });
 
-  // 503 sin clave, 200 con ella. Se aceptan los dos para que el test valga en
-  // las dos configuraciones en vez de fallar en la que no se dio.
   expect([200, 503]).toContain(respuesta.status());
 
   if (respuesta.status() === 503) {
-    // Y cuando se apaga, se apaga en RFC 9457 como todo lo demás.
+    // Apagado se apaga en RFC 9457, como todo lo demás.
     expect(respuesta.headers()['content-type']).toContain('application/problem+json');
+  } else {
+    const flujo = await respuesta.text();
+
+    // Las fuentes van primero, para que la interfaz pueda pintar de dónde
+    // saldrá la respuesta antes de que exista.
+    expect(flujo).toContain('event:fuentes');
+    expect(flujo).toContain('pasta-carbonara');
+
+    // Llega troceado y termina: si faltara el `fin`, el cliente se quedaría
+    // esperando para siempre sin que nada diera error.
+    expect(flujo).toContain('event:texto');
+    expect(flujo).toContain('event:fin');
+
+    // Hay que recomponer el texto antes de mirarlo, y no es un detalle: el
+    // modelo emite un token por evento, así que una cita «[1]» viaja como tres
+    // eventos distintos —«[», «1», «]»— y NUNCA aparece contigua en el flujo en
+    // crudo. Comprobarlo sobre el flujo sin recomponer da un fallo que parece
+    // del modelo cuando es del test.
+    const texto = flujo
+      .split('\n')
+      .filter((linea) => linea.startsWith('data:'))
+      .map((linea) => linea.slice(5))
+      .join('');
+
+    // Está fundamentado: el modelo cita la fuente en vez de recitar lo que sabe
+    // de cocina. Sin la cita no habría forma de comprobar la respuesta.
+    expect(texto).toContain('[1]');
+
+    // La carbonara de este catálogo lleva guanciale y NO nata. Es justo donde
+    // un modelo tiende a corregir al catálogo con lo que aprendió por ahí, así
+    // que esto mide que la recuperación manda sobre el conocimiento propio.
+    expect(texto.toLowerCase()).toContain('guanciale');
   }
 
-  // Lo importante: el resto del catálogo no se entera.
+  // Lo importante: el resto del catálogo no se entera de nada de esto.
   expect((await http.get('/culturas?size=1')).status()).toBe(200);
 });
 
