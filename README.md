@@ -79,9 +79,34 @@ esté atado al de los contenedores.
 ```
 backend/      Spring Boot 4.1 (Maven wrapper)
 frontend/     Angular 22
-infra/        init de Postgres, datos semilla
+infra/        Terraform: contenedores, roles, extensiones, buckets y secretos
 workflows/    workflows de n8n versionados en JSON
 docs/adr/     decisiones de arquitectura
+```
+
+## Búsqueda
+
+Tres carriles fusionados con Reciprocal Rank Fusion (k=60), que opera sobre
+posiciones y no sobre puntuaciones — así no hay que normalizar un `ts_rank` de
+escala abierta contra una similitud coseno entre 0 y 1:
+
+| Carril | Resuelve | Ejemplo |
+|---|---|---|
+| Léxico (`tsvector` + GIN) | coincidencia de lexemas, también dentro de los pasos | `esterilla` → Sushi Rolls |
+| Difuso (trigramas) | erratas y acentos, donde no queda raíz común | `carbonarra` → Pasta Carbonara |
+| Semántico (pgvector + HNSW) | intención, sin compartir un solo carácter | `raw fish with seaweed` → Sushi Rolls |
+
+Los embeddings se calculan en proceso con ONNX Runtime
+(`paraphrase-multilingual-MiniLM-L12-v2`, 384 dimensiones): no hay servicio que
+levantar ni llamada de red por consulta. El vector vive en las tablas del
+dominio y no en un almacén aparte — ver
+[`docs/adr/0003-embeddings-en-el-dominio.md`](docs/adr/0003-embeddings-en-el-dominio.md).
+
+El carril semántico **degrada, no rompe**: mientras haya filas sin vector, la
+búsqueda responde con los otros dos.
+
+```bash
+task reindex    # calcula los embeddings pendientes (idempotente)
 ```
 
 ## Verificación
@@ -90,12 +115,17 @@ docs/adr/     decisiones de arquitectura
 task verify     # lo mismo que corre en CI
 ```
 
-Incluye tests unitarios, slices de MockMvc, integración con Testcontainers contra
-Postgres y Redis reales, build y tests del frontend, y una comprobación de que el
-cliente TypeScript generado sigue al día respecto al OpenAPI del backend — un
-`git diff` no vacío falla el build. Esa última comprobación existe porque en el
-proyecto de 2023 el frontend llamaba a `/categories/{nombre}` contra un backend que
-sólo aceptaba `?id=`, y nada lo detectaba.
+Tests unitarios, integración con Testcontainers contra Postgres real, build y
+tests del frontend, y el end-to-end de Playwright.
+
+Ese último es la pieza central: una sola ejecución que recorre infraestructura,
+base de datos, API, seguridad, búsqueda, trabajos en segundo plano y navegador.
+Es también lo que cubre la frontera entre las dos mitades — en 2023 el frontend
+llamaba a `/categories/{nombre}` contra un backend que sólo aceptaba `?id=`, y
+nada lo detectaba porque ningún test la cruzaba.
+
+Cada bloque comprueba además algo que el proyecto original hacía mal, para que
+el test no diga sólo que la reescritura funciona sino en qué se diferencia.
 
 ## Notas
 
@@ -105,3 +135,9 @@ sólo aceptaba `?id=`, y nada lo detectaba.
   borrar lo que creó, y eso se valida en el servidor, no ocultando botones.
 - Los textos de interfaz y la documentación están en español; los identificadores,
   logs e infraestructura en inglés, siguiendo la convención del repositorio original.
+- El asistente de preguntas en lenguaje natural (`/api/v2/asistente/preguntar`)
+  necesita `ANTHROPIC_API_KEY` en el entorno. Sin ella responde **503** y todo lo
+  demás funciona igual: es una función accesoria y no un requisito para que el
+  catálogo sirva. Exige identidad aunque sea un GET, porque cada llamada gasta
+  dinero en un proveedor externo. **Pendiente**: eso limita quién puede gastar,
+  no cuánto — falta un límite por usuario, para el que Redis ya está en el stack.

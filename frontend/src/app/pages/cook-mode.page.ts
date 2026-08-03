@@ -14,6 +14,28 @@ import { ProgressBarModule } from 'primeng/progressbar';
 import { CatalogService } from '../core/catalog.service';
 
 /**
+ * Segundos a `mm:ss`.
+ *
+ * <p>Exportada y pura para poder comprobarla sin montar el componente: el
+ * temporizador es lo único de esta pantalla que puede estar mal de una forma
+ * que nadie note hasta que alguien esté cocinando.
+ */
+export function formatClock(seconds: number): string {
+  // Los negativos se tratan como cero: al terminar la cuenta atrás, un tick de
+  // más produciría "-1" y se pintaría "00:-1".
+  const safe = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safe / 60);
+  return `${String(minutes).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
+}
+
+/** Porcentaje de avance del paso actual, contando desde 1. */
+export function stepProgress(index: number, total: number): number {
+  // Sin la guarda, una receta sin pasos divide por cero y la barra recibe NaN,
+  // que PrimeNG pinta como una barra vacía sin avisar de nada.
+  return total > 0 ? ((index + 1) / total) * 100 : 0;
+}
+
+/**
  * Modo cocina: un paso a la vez, con temporizador y pantalla siempre encendida.
  *
  * <p>Sólo es posible porque los pasos volvieron a ser filas. En 2023 las
@@ -96,14 +118,10 @@ export class CookModePage {
   protected readonly running = signal(false);
 
   protected readonly current = computed(() => this.recipe.value()?.steps[this.index()]);
-  protected readonly progress = computed(() => {
-    const total = this.recipe.value()?.steps.length ?? 0;
-    return total ? ((this.index() + 1) / total) * 100 : 0;
-  });
-  protected readonly formatted = computed(() => {
-    const seconds = this.remaining();
-    return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-  });
+  protected readonly progress = computed(() =>
+    stepProgress(this.index(), this.recipe.value()?.steps.length ?? 0),
+  );
+  protected readonly formatted = computed(() => formatClock(this.remaining()));
 
   private ticker: ReturnType<typeof setInterval> | null = null;
   private wakeLock: WakeLockSentinel | null = null;
