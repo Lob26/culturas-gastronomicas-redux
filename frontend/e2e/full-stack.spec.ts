@@ -445,6 +445,125 @@ test('la búsqueda funciona desde la interfaz y se puede compartir por enlace', 
   await page.waitForURL(/\/recetas\/pasta-carbonara/, { timeout: 15_000 });
 });
 
+/**
+ * Las pantallas sociales, desde el navegador.
+ *
+ * Recorre el circuito entero que en 2023 no existía ni en el backend: entrar,
+ * valorar una receta, verla guardada en el recetario y recibir una
+ * recomendación basada en eso.
+ *
+ * Se hace en un solo test y no en cuatro a propósito: son pasos encadenados de
+ * un mismo estado —hay que haber valorado para que la recomendación sea
+ * personal— y partirlo obligaría a repetir el registro y el voto en cada uno.
+ */
+test('valorar, guardar y recibir recomendaciones desde la interfaz', async ({ page }) => {
+  const usuario = `ui${Date.now().toString().slice(-9)}`;
+
+  await page.goto('/entrar');
+  await page.waitForLoadState('networkidle');
+
+  // Registro y acceso comparten pantalla; se alterna con este enlace.
+  await page.getByRole('button', { name: /no tienes cuenta/i }).click();
+  await page.getByLabel('Usuario').fill(usuario);
+  await page.getByLabel('Nombre visible').fill('Prueba interfaz');
+  await page.getByLabel('Contraseña').fill('clave-de-prueba-123');
+  await page.getByRole('button', { name: 'Crear cuenta' }).click();
+
+  // Al registrarse navega a la home, y la cabecera pasa a mostrar el nombre.
+  await page.waitForURL(/\/$/, { timeout: 15_000 });
+  await expect(page.getByText('Prueba interfaz')).toBeVisible({ timeout: 15_000 });
+
+  await page.goto('/recetas/pasta-carbonara');
+  await page.waitForLoadState('networkidle');
+
+  // Atribución: las recetas sembradas no las creó nadie, así que no debe
+  // aparecer un «Añadido por» sin nombre detrás.
+  await expect(page.getByText(/añadido por/i)).toHaveCount(0);
+
+  // Valorar. PrimeNG deja los radios ocultos —son sólo el soporte accesible,
+  // con data-pc-section="hiddenoptioninput"— y el clic va sobre el div de la
+  // estrella. Pulsar el radio directamente falla por accionabilidad, que es
+  // correcto: un usuario tampoco puede pulsar algo invisible.
+  //
+  // Se elige por posición y no por etiqueta accesible porque esa etiqueta sale
+  // de las traducciones de PrimeNG («5 stars»), y ahí sí cambiaría al
+  // traducirlas; la quinta estrella es un 5 en cualquier idioma.
+  await page.locator('p-rating .p-rating-option').nth(4).click();
+  // `exact` porque el marcador de favoritos se llama «Guardar en el recetario»
+  // y la búsqueda por nombre es por subcadena: sin esto coinciden los dos.
+  await page.getByRole('button', { name: 'Guardar', exact: true }).click();
+
+  // «Retirar» sólo aparece cuando la lista recargada ya contiene tu voto, así
+  // que verlo prueba a la vez que se guardó y que el recurso se invalidó.
+  await expect(page.getByRole('button', { name: 'Retirar' })).toBeVisible({ timeout: 15_000 });
+
+  // Guardar en el recetario.
+  await page.getByRole('button', { name: /guardar en el recetario/i }).click();
+  await expect(page.getByRole('button', { name: /quitar del recetario/i })).toBeVisible({
+    timeout: 15_000,
+  });
+
+  await page.goto('/recetario');
+  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('link', { name: /Pasta Carbonara/ })).toBeVisible({ timeout: 15_000 });
+
+  // Y la home pasa de populares a personales, porque ya hay un 5 que sirve de
+  // semilla. Es el mismo cambio de `basis` que comprueba el test de API, visto
+  // desde donde lo ve el usuario.
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('heading', { name: 'Recomendado para ti' })).toBeVisible({
+    timeout: 15_000,
+  });
+});
+
+/**
+ * El asistente desde el navegador.
+ *
+ * Comprueba lo que el test de API no puede ver: que el flujo SSE se consume y
+ * se pinta de verdad en la pantalla. Con Ollama parado se conforma con el aviso
+ * de que hace falta arrancarlo, que es el otro comportamiento correcto.
+ */
+test('el asistente responde en pantalla o avisa de que falta Ollama', async ({ page }) => {
+  test.setTimeout(300_000);
+
+  const usuario = `ask${Date.now().toString().slice(-9)}`;
+
+  await page.goto('/entrar');
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: /no tienes cuenta/i }).click();
+  await page.getByLabel('Usuario').fill(usuario);
+  await page.getByLabel('Nombre visible').fill('Preguntón');
+  await page.getByLabel('Contraseña').fill('clave-de-prueba-123');
+  await page.getByRole('button', { name: 'Crear cuenta' }).click();
+  await page.waitForURL(/\/$/, { timeout: 15_000 });
+
+  await page.goto('/preguntar');
+  await page.waitForLoadState('networkidle');
+
+  await page.getByLabel('Pregunta').fill('¿Qué lleva la carbonara?');
+  await page.getByRole('button', { name: 'Preguntar' }).click();
+
+  // Una cosa o la otra, y las dos son correctas.
+  const respuesta = page.locator('article');
+  const aviso = page.getByText(/necesita Ollama/i);
+  await expect(respuesta.or(aviso).first()).toBeVisible({ timeout: 240_000 });
+
+  if (await aviso.isVisible()) {
+    return;
+  }
+
+  // Las fuentes se pintan antes que el texto, y son enlaces navegables: sin
+  // eso la cita «[1]» sería una marca que no lleva a ninguna parte.
+  await expect(page.getByRole('link', { name: /\[1\] Pasta Carbonara/ })).toBeVisible({
+    timeout: 240_000,
+  });
+
+  // Y la respuesta acaba conteniendo lo que dice la fuente, no lo que el modelo
+  // recuerde de otras carbonaras.
+  await expect(respuesta).toContainText(/guanciale/i, { timeout: 240_000 });
+});
+
 test('la home se sirve prerrenderizada, con contenido en el HTML', async ({ request }) => {
   // Se pide el HTML en crudo, sin ejecutar JavaScript: si el contenido está
   // ahí, el prerenderizado funciona de verdad y no es una cáscara que se
