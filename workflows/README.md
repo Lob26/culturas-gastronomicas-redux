@@ -8,6 +8,30 @@ llevaría los workflows y habría que redibujarlos a mano.
 |---|---|---|
 | `mantenimiento-nocturno.json` | Cron, 03:00 | Reindexa los embeddings pendientes y lanza el verificador de enlaces |
 | `reindexar-al-cambiar-el-catalogo.json` | Webhook `POST /webhook/catalogo-cambiado` | Recalcula los vectores pendientes en cuanto cambia una receta |
+| `respaldo-nocturno.json` | Cron 02:30 · Webhook `POST /webhook/respaldo-ahora` | Exporta el catálogo a JSON y lo sube a MinIO |
+| `resumen-diario.json` | Cron 08:00 · Webhook `POST /webhook/resumen-ahora` | Compone el estado del sistema y marca la ejecución si hay algo que arreglar |
+
+Los dos programados llevan además un webhook «bajo demanda». No es sólo
+comodidad: `n8n execute` **no puede arrancar un workflow cuyo disparador es un
+cron** —falla con «Missing node to start execution»— así que sin ese segundo
+disparador no habría forma de probarlos sin esperar a la hora.
+
+### Qué se alerta y qué sólo se informa
+
+El resumen diario deja la ejecución **en rojo** únicamente si hay recetas sin
+vector, que significa que el reindexado falló y la búsqueda semántica lleva
+horas degradada sin que nadie se entere —ese carril degrada en silencio a
+propósito—. Las imágenes rotas van en el informe pero no marcan nada: el
+catálogo sembrado ya trae varias caídas, y alertar de todo lo que no está
+perfecto deja el rojo encendido todos los días hasta que deja de significar
+nada.
+
+### Identificadores estables
+
+Cada JSON lleva un `id` de nivel superior. Sin él, `n8n import:workflow` crea
+un workflow nuevo en cada importación en vez de actualizar el existente: dos
+`task n8n:import` seguidos dejaban ocho workflows donde había cuatro, con los
+cron duplicados haciendo el trabajo dos veces.
 
 ## Por qué esto vive en n8n y no en `@Scheduled`
 

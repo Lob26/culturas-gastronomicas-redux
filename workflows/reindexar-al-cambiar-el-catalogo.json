@@ -1,4 +1,5 @@
 {
+  "id": "culturasReidx001",
   "name": "Reindexar al cambiar el catálogo",
   "nodes": [
     {
@@ -12,7 +13,10 @@
       "name": "Catálogo cambiado",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-200, 0],
+      "position": [
+        -200,
+        0
+      ],
       "webhookId": "b2e1d5ef-0002-4000-8000-0000000000ff",
       "notes": "Se dispara al crear o editar una receta. Sin esto, un plato nuevo no aparece en la búsqueda semántica hasta la pasada de las 3 de la mañana."
     },
@@ -37,7 +41,10 @@
       "name": "Reindexar lo pendiente",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [40, 0],
+      "position": [
+        40,
+        0
+      ],
       "notes": "Reindexa lo pendiente, no la fila concreta que avisó. Así dos webhooks solapados no compiten, y uno perdido se recupera solo en la siguiente pasada."
     }
   ],

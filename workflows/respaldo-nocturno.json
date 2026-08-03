@@ -1,0 +1,183 @@
+{
+  "id": "culturasResp0001",
+  "name": "Respaldo nocturno",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "c3d2e6f0-0003-4000-8000-000000000001",
+      "name": "Cada noche a las 2:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "notes": "Media hora antes del mantenimiento: se respalda el estado tal y como quedó el día, no el que deja el reindexado."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "respaldo-ahora",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "c3d2e6f0-0003-4000-8000-000000000006",
+      "name": "Bajo demanda",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        180
+      ],
+      "webhookId": "c3d2e6f0-0003-4000-8000-0000000000fe",
+      "notes": "Segundo disparador para poder respaldar sin esperar a las 2:30 — antes de una migración, por ejemplo. Es además la única forma de probar este workflow: `n8n execute` no admite arrancar por un nodo de cron."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CULTURAS_API_URL }}/api/v2/jobs/respaldo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CULTURAS_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "c3d2e6f0-0003-4000-8000-000000000002",
+      "name": "Exportar a MinIO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        20,
+        0
+      ],
+      "notes": "Exporta el catálogo a JSON y lo sube al bucket. No es un pg_dump: no restaura roles ni secuencias, sólo el contenido. Ver BackupService."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.filas }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c3d2e6f0-0003-4000-8000-000000000003",
+      "name": "¿Trajo algo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        0
+      ],
+      "notes": "Un respaldo de cero filas es el fallo peligroso: se sube, parece que funcionó y sólo se descubre al restaurar. Si pasa, esta rama deja la ejecución en rojo."
+    },
+    {
+      "parameters": {
+        "errorMessage": "El respaldo salió vacío: 0 filas exportadas"
+      },
+      "id": "c3d2e6f0-0003-4000-8000-000000000004",
+      "name": "Respaldo vacío",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        500,
+        120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c3d2e6f0-0003-4000-8000-000000000005",
+      "name": "Correcto",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        500,
+        -100
+      ]
+    }
+  ],
+  "connections": {
+    "Cada noche a las 2:30": {
+      "main": [
+        [
+          {
+            "node": "Exportar a MinIO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bajo demanda": {
+      "main": [
+        [
+          {
+            "node": "Exportar a MinIO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exportar a MinIO": {
+      "main": [
+        [
+          {
+            "node": "¿Trajo algo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Trajo algo?": {
+      "main": [
+        [
+          {
+            "node": "Correcto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respaldo vacío",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

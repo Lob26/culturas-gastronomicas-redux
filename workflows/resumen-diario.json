@@ -1,0 +1,198 @@
+{
+  "id": "culturasResu0001",
+  "name": "Resumen diario",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "d4e3f701-0004-4000-8000-000000000001",
+      "name": "Cada mañana a las 8",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -240,
+        0
+      ],
+      "notes": "Después de la tanda nocturna, no durante: así el resumen describe cómo quedó todo, no cómo iba a medias."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "resumen-ahora",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "d4e3f701-0004-4000-8000-000000000007",
+      "name": "Bajo demanda",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        180
+      ],
+      "webhookId": "d4e3f701-0004-4000-8000-0000000000fe",
+      "notes": "Segundo disparador, para consultar el estado sin esperar a las 8. Es además la única forma de probar este workflow: `n8n execute` no admite arrancar por un nodo de cron."
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CULTURAS_API_URL }}/api/v2/jobs/estadisticas",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "d4e3f701-0004-4000-8000-000000000002",
+      "name": "Leer cifras",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "notes": "Endpoint público de lectura: no necesita clave."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Se alerta SÓLO de recetas sin vector, y el resto va como informe.\n//\n// La distinción importa: alertar de todo lo que no está perfecto deja la\n// ejecución en rojo todos los días —el catálogo sembrado ya trae cinco\n// imágenes caídas— y un rojo permanente deja de significar nada. Se alerta\n// de lo que cambió y hay que arreglar; se informa de lo que sólo hay que\n// mirar.\n//\n// Recetas sin vector significa que el reindexado nocturno falló y la\n// búsqueda semántica lleva horas degradada sin que nadie se entere, porque\n// ese carril degrada en silencio a propósito. Eso sí es accionable.\n\nconst s = $input.first().json;\nconst pendientes = s.recetas - s.indexadas;\n\nconst alertas = [];\nif (pendientes > 0) {\n  alertas.push(`${pendientes} receta(s) sin vector: la búsqueda semántica está degradada`);\n}\n\nreturn [{\n  json: {\n    generado: new Date().toISOString(),\n    catalogo: {\n      culturas: s.culturas,\n      recetas: s.recetas,\n      indexadas: s.indexadas,\n      pendientesDeIndexar: pendientes,\n      imagenesRotas: s.imagenesRotas,\n    },\n    comunidad: {\n      usuarios: s.usuarios,\n      valoraciones: s.valoraciones,\n      favoritos: s.favoritos,\n      mediaGlobal: s.mediaGlobal,\n    },\n    alertas,\n    estado: alertas.length ? 'ATENCION' : 'OK',\n  },\n}];"
+      },
+      "id": "d4e3f701-0004-4000-8000-000000000003",
+      "name": "Componer resumen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.estado }}",
+              "rightValue": "ATENCION",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d4e3f701-0004-4000-8000-000000000004",
+      "name": "¿Hay algo que mirar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "notes": "El resumen queda siempre en el historial de ejecuciones de n8n; la rama de atención además deja la ejecución marcada, que es lo que hace que se note sin tener que entrar a mirar."
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.alertas.join('; ') }}"
+      },
+      "id": "d4e3f701-0004-4000-8000-000000000005",
+      "name": "Marcar atención",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        720,
+        120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d4e3f701-0004-4000-8000-000000000006",
+      "name": "Todo en orden",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        720,
+        -100
+      ]
+    }
+  ],
+  "connections": {
+    "Cada mañana a las 8": {
+      "main": [
+        [
+          {
+            "node": "Leer cifras",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bajo demanda": {
+      "main": [
+        [
+          {
+            "node": "Leer cifras",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer cifras": {
+      "main": [
+        [
+          {
+            "node": "Componer resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Componer resumen": {
+      "main": [
+        [
+          {
+            "node": "¿Hay algo que mirar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay algo que mirar?": {
+      "main": [
+        [
+          {
+            "node": "Marcar atención",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Todo en orden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

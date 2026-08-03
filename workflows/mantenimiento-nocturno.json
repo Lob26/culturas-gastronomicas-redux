@@ -1,4 +1,5 @@
 {
+  "id": "culturasMant0001",
   "name": "Mantenimiento nocturno",
   "nodes": [
     {
@@ -16,7 +17,10 @@
       "name": "Cada noche a las 3",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-200, 0],
+      "position": [
+        -200,
+        0
+      ],
       "notes": "A las 3 y no a medianoche: a las 00:00 arrancan a la vez todos los cron mal repartidos del mundo."
     },
     {
@@ -40,7 +44,10 @@
       "name": "Reindexar embeddings",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [20, -100],
+      "position": [
+        20,
+        -100
+      ],
       "notes": "Idempotente: sólo recalcula lo que no tiene vector o lo tiene desactualizado. Si no cambió nada, no hace nada."
     },
     {
@@ -64,7 +71,10 @@
       "name": "Verificar enlaces",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [20, 100],
+      "position": [
+        20,
+        100
+      ],
       "notes": "Devuelve el id del trabajo de inmediato; el progreso va por SSE. Aquí sólo interesa dispararlo."
     }
   ],
