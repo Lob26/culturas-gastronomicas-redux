@@ -159,6 +159,39 @@ tercero fallaría con razón.
 
 Al terminar, `task down` para la VM de Podman y devuelve la memoria.
 
+### Consola de tareas
+
+Si prefieres botones a terminales:
+
+```bash
+task console        # imprime una URL con token; ábrela
+```
+
+Es a `task` lo que Swagger UI es a la API: `task --list --json` hace de
+documento de especificación y la consola lo pinta. **La lista no se mantiene a
+mano** — añade una tarea al Taskfile y aparece sola, con su descripción.
+
+Node pelado, sin dependencias ni compilación, y deliberadamente fuera del
+backend: haría falta el backend en marcha para levantar la infraestructura de
+la que depende el backend. Tampoco va en un contenedor, porque su trabajo es
+gobernar el `podman` y el `terraform` **del anfitrión**.
+
+Funciona igual en Windows y en Linux. En Windows resuelve `task.exe` por ruta
+absoluta para poder lanzarlo con `shell: false` (desde Node 20.12 un `.cmd` no
+se puede lanzar sin shell), y al parar una tarea usa `taskkill /T` para llevarse
+también a los nietos — parar `llm:up` matando sólo a `task` dejaría `ollama`
+vivo ocupando el puerto.
+
+> **Esto ejecuta comandos en tu máquina.** Escucha sólo en `127.0.0.1`, exige un
+> token que cambia en cada arranque, y valida `Host` y `Origin` en cada llamada.
+> Las tres cosas hacen falta: aunque no esté expuesta a la red, **tu propio
+> navegador sí puede llegar**, así que cualquier pestaña abierta podría intentar
+> un POST. El token va en una cabecera propia, lo que obliga a preflight, y como
+> no se responde nada de CORS ese preflight falla. Los nombres de tarea salen
+> siempre del Taskfile —nunca del cliente— y se pasan como argumento con
+> `shell: false`, así que no hay forma de colar `up; rm -rf ~`. `nuke` exige
+> además escribir su nombre para confirmar.
+
 ### Lo que corre en CI
 
 ```bash

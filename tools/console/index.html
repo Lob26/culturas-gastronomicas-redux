@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Consola de tareas · Culturas Gastronómicas</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --fondo: #0f1115; --panel: #171a21; --borde: #262b36;
+      --texto: #e6e9ef; --suave: #97a0b0;
+      --acento: #7aa2f7; --ok: #6bd490; --mal: #f7768e; --aviso: #e0af68;
+      font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--fondo); color: var(--texto); }
+    header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--borde); }
+    h1 { margin: 0; font-size: 1.15rem; font-weight: 600; letter-spacing: -.01em; }
+    header p { margin: .35rem 0 0; color: var(--suave); font-size: .85rem; }
+    main { display: grid; grid-template-columns: minmax(320px, 400px) 1fr; gap: 1px; background: var(--borde);
+           height: calc(100vh - 5.2rem); }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; height: auto; } }
+    .columna { background: var(--fondo); overflow-y: auto; padding: 1rem 1.25rem; }
+    h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--suave);
+         margin: 1.25rem 0 .5rem; }
+    h2:first-child { margin-top: 0; }
+    .tarea { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left;
+             background: var(--panel); border: 1px solid var(--borde); border-radius: .55rem;
+             padding: .6rem .7rem; margin-bottom: .4rem; color: inherit; cursor: pointer;
+             font: inherit; transition: border-color .12s, transform .12s; }
+    .tarea:hover:not(:disabled) { border-color: var(--acento); }
+    .tarea:disabled { opacity: .5; cursor: not-allowed; }
+    .tarea .nombre { font-weight: 600; font-size: .85rem; font-family: ui-monospace, monospace; }
+    .tarea .desc { display: block; color: var(--suave); font-size: .75rem; margin-top: .15rem;
+                   font-weight: 400; font-family: inherit; }
+    .marca { margin-left: auto; font-size: .62rem; padding: .12rem .4rem; border-radius: .3rem;
+             border: 1px solid currentColor; white-space: nowrap; }
+    .marca.peligro { color: var(--mal); }
+    .marca.larga { color: var(--aviso); }
+    .marca.viva { color: var(--ok); }
+    #salida { font-family: ui-monospace, "Cascadia Code", monospace; font-size: .78rem;
+              line-height: 1.5; white-space: pre-wrap; word-break: break-word; margin: 0; }
+    #salida .err { color: var(--mal); }
+    .barra { display: flex; align-items: center; gap: .75rem; margin-bottom: .75rem;
+             padding-bottom: .75rem; border-bottom: 1px solid var(--borde); }
+    .barra strong { font-family: ui-monospace, monospace; font-size: .85rem; }
+    .estado { font-size: .75rem; color: var(--suave); }
+    .estado.ok { color: var(--ok); } .estado.mal { color: var(--mal); }
+    button.parar { margin-left: auto; background: transparent; color: var(--mal);
+                   border: 1px solid var(--mal); border-radius: .4rem; padding: .25rem .7rem;
+                   font: inherit; font-size: .75rem; cursor: pointer; }
+    .vacio { color: var(--suave); font-size: .85rem; }
+    .aviso { background: #2a1f16; border: 1px solid var(--aviso); color: var(--aviso);
+             border-radius: .5rem; padding: .6rem .75rem; font-size: .78rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Consola de tareas</h1>
+    <p id="cabecera">Cargando el Taskfile…</p>
+  </header>
+
+  <main>
+    <section class="columna" id="lista"></section>
+    <section class="columna">
+      <div class="barra" id="barra" hidden>
+        <strong id="tareaActual"></strong>
+        <span class="estado" id="estado"></span>
+        <button class="parar" id="parar" hidden>Parar</button>
+      </div>
+      <pre id="salida"><span class="vacio">Elige una tarea de la izquierda.</span></pre>
+    </section>
+  </main>
+
+<script type="module">
+  // El token llega en la query porque una navegación del navegador no puede
+  // llevar cabeceras. A partir de aquí viaja SIEMPRE en X-Console-Token: una
+  // cabecera propia obliga al navegador a hacer preflight, y como el servidor
+  // no responde nada de CORS, ninguna web ajena puede llamar a esta API.
+  const token = new URLSearchParams(location.search).get('t') ?? '';
+
+  const cabecera = document.getElementById('cabecera');
+  const lista = document.getElementById('lista');
+  const salida = document.getElementById('salida');
+  const barra = document.getElementById('barra');
+  const tareaActual = document.getElementById('tareaActual');
+  const estado = document.getElementById('estado');
+  const parar = document.getElementById('parar');
+
+  const cabeceras = { 'X-Console-Token': token, 'Content-Type': 'application/json' };
+  let runActual = null;
+  let lector = null;
+
+  const ORDEN = ['stack', 'infra', 'machine', 'backend', 'frontend', 'llm', 'n8n'];
+
+  async function cargarTareas() {
+    const respuesta = await fetch('/api/tasks', { headers: cabeceras });
+    if (!respuesta.ok) {
+      cabecera.textContent = 'Token inválido: vuelve a abrir la URL que imprimió `task console`.';
+      return;
+    }
+    const { repo, plataforma, tareas } = await respuesta.json();
+    cabecera.textContent = `${repo} · ${plataforma} · ${tareas.length} tareas`;
+
+    const grupos = new Map();
+    for (const tarea of tareas) {
+      if (!grupos.has(tarea.group)) grupos.set(tarea.group, []);
+      grupos.get(tarea.group).push(tarea);
+    }
+
+    const ordenados = [...grupos.keys()].sort(
+      (a, b) => (ORDEN.indexOf(a) + 1 || 99) - (ORDEN.indexOf(b) + 1 || 99) || a.localeCompare(b));
+
+    lista.replaceChildren();
+    for (const grupo of ordenados) {
+      const titulo = document.createElement('h2');
+      titulo.textContent = grupo;
+      lista.append(titulo);
+
+      for (const tarea of grupos.get(grupo)) {
+        const boton = document.createElement('button');
+        boton.className = 'tarea';
+        boton.innerHTML = `<span><span class="nombre">${tarea.name}</span>
+          <span class="desc">${tarea.desc || '—'}</span></span>`;
+
+        if (tarea.destructive) boton.insertAdjacentHTML('beforeend', '<span class="marca peligro">destructiva</span>');
+        else if (tarea.longRunning) boton.insertAdjacentHTML('beforeend', '<span class="marca larga">no termina</span>');
+
+        boton.addEventListener('click', () => lanzar(tarea));
+        lista.append(boton);
+      }
+    }
+  }
+
+  async function lanzar(tarea) {
+    if (tarea.destructive) {
+      const escrito = prompt(
+        `«${tarea.name}» BORRA datos (volúmenes de Postgres, MinIO y n8n).\n\n` +
+        `Escribe ${tarea.name} para confirmar:`);
+      if (escrito !== tarea.name) return;
+      var confirmacion = escrito;
+    }
+
+    lector?.cancel().catch(() => {});
+    salida.replaceChildren();
+    barra.hidden = false;
+    tareaActual.textContent = `task ${tarea.name}`;
+    estado.textContent = 'lanzando…';
+    estado.className = 'estado';
+    parar.hidden = true;
+
+    const respuesta = await fetch('/api/runs', {
+      method: 'POST',
+      headers: cabeceras,
+      body: JSON.stringify({ tarea: tarea.name, confirmacion }),
+    });
+    const cuerpo = await respuesta.json();
+
+    if (!respuesta.ok) {
+      escribir('err', cuerpo.error ?? 'No se pudo lanzar');
+      estado.textContent = 'rechazada';
+      estado.className = 'estado mal';
+      return;
+    }
+
+    runActual = cuerpo.runId;
+    estado.textContent = 'corriendo';
+    parar.hidden = false;
+    seguir(cuerpo.runId);
+  }
+
+  /**
+   * Se lee con fetch y no con EventSource por lo mismo que en el asistente del
+   * catálogo: EventSource no puede mandar cabeceras, y el token va en una.
+   * Meterlo en la URL lo dejaría escrito en el historial del navegador.
+   */
+  async function seguir(runId) {
+    const respuesta = await fetch(`/api/runs/${runId}/stream`, { headers: cabeceras });
+    lector = respuesta.body.getReader();
+    const decodificador = new TextDecoder();
+    let pendiente = '';
+
+    for (;;) {
+      const { value, done } = await lector.read();
+      if (done) break;
+      // stream:true: un carácter multibyte partido entre dos lecturas se
+      // convertiría en un rombo, y en español eso pasa a la primera tilde.
+      pendiente += decodificador.decode(value, { stream: true });
+
+      let corte;
+      while ((corte = pendiente.indexOf('\n\n')) !== -1) {
+        procesar(pendiente.slice(0, corte));
+        pendiente = pendiente.slice(corte + 2);
+      }
+    }
+  }
+
+  function procesar(bloque) {
+    const lineas = bloque.split('\n');
+    const evento = lineas.find((l) => l.startsWith('event:'))?.slice(6).trim();
+    const datos = lineas.filter((l) => l.startsWith('data:')).map((l) => l.slice(5)).join('\n');
+    if (!datos) return;
+
+    if (evento === 'salida') {
+      const { stream, text } = JSON.parse(datos);
+      escribir(stream, text);
+    } else if (evento === 'fin') {
+      const { estado: resultado, codigo } = JSON.parse(datos);
+      estado.textContent = resultado === 'finished' ? 'terminada (0)' : `falló (${codigo ?? '—'})`;
+      estado.className = `estado ${resultado === 'finished' ? 'ok' : 'mal'}`;
+      parar.hidden = true;
+      runActual = null;
+    }
+  }
+
+  function escribir(stream, texto) {
+    const linea = document.createElement('span');
+    if (stream === 'err') linea.className = 'err';
+    linea.textContent = texto + '\n';
+    salida.append(linea);
+    // Sólo se sigue el final si el usuario ya estaba abajo: si está leyendo
+    // más arriba, saltar al final en cada línea hace la salida ilegible.
+    const alFinal = salida.parentElement.scrollTop + salida.parentElement.clientHeight
+      >= salida.parentElement.scrollHeight - 60;
+    if (alFinal) salida.parentElement.scrollTop = salida.parentElement.scrollHeight;
+  }
+
+  parar.addEventListener('click', async () => {
+    if (!runActual) return;
+    await fetch(`/api/runs/${runActual}/stop`, { method: 'POST', headers: cabeceras });
+    estado.textContent = 'parando…';
+  });
+
+  cargarTareas();
+</script>
+</body>
+</html>

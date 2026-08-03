@@ -192,6 +192,18 @@ tasks:
       - cmd: ollama ps
         ignore_error: true
 
+  console:
+    desc: Consola web para lanzar estas mismas tareas (sólo 127.0.0.1)
+    cmds:
+      # Node pelado, sin dependencias ni compilación: esta herramienta tiene que
+      # funcionar justo cuando no funciona nada más, así que no puede depender
+      # de que el stack esté levantado.
+      #
+      # Imprime una URL con un token de un solo arranque. Escucha únicamente en
+      # 127.0.0.1 y valida Host, Origin y token en cada llamada: es un ejecutor
+      # de comandos, y tu propio navegador es la superficie de ataque.
+      - node tools/console/server.mjs
+
   logs:
     desc: "Sigue los logs de un servicio. Uso: task logs -- culturas-database"
     cmds:
