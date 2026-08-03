@@ -1,7 +1,9 @@
 package co.edu.uniandes.culturas.web;
 
+import co.edu.uniandes.culturas.config.CulturasProperties;
 import co.edu.uniandes.culturas.repository.VectorRepository;
 import co.edu.uniandes.culturas.service.RagService;
+import co.edu.uniandes.culturas.service.RateLimiter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -12,6 +14,8 @@ import jakarta.validation.constraints.Size;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,11 +25,13 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
 import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
+import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 
 /**
  * Preguntas en lenguaje natural sobre el catálogo.
@@ -57,9 +63,13 @@ public class AssistantController {
     private static final long TIMEOUT_MS = 300_000L;
 
     private final RagService rag;
+    private final RateLimiter rateLimiter;
+    private final CulturasProperties.Limits limits;
 
-    public AssistantController(RagService rag) {
+    public AssistantController(RagService rag, RateLimiter rateLimiter, CulturasProperties properties) {
         this.rag = rag;
+        this.rateLimiter = rateLimiter;
+        this.limits = properties.limits();
     }
 
     @GetMapping(value = "/preguntar", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -71,7 +81,8 @@ public class AssistantController {
     })
     public SseEmitter ask(
             @Parameter(description = "Pregunta en lenguaje natural", example = "¿Qué lleva la carbonara?")
-            @RequestParam @NotBlank @Size(min = 3, max = 500) String q) {
+            @RequestParam @NotBlank @Size(min = 3, max = 500) String q,
+            @AuthenticationPrincipal Jwt jwt) {
 
         // Se comprueba antes de abrir el flujo: mientras esto siga siendo una
         // petición normal, un 503 es un 503. Una vez emitido el primer evento,
@@ -84,6 +95,29 @@ public class AssistantController {
         if (!rag.enabled() || !rag.reachable()) {
             throw new ResponseStatusException(SERVICE_UNAVAILABLE,
                     "El asistente necesita Ollama en marcha. Arráncalo con `task llm:up`.");
+        }
+
+        // El cupo se cobra por usuario y ANTES de generar. Exigir identidad
+        // limitaba quién podía lanzar una generación, no con qué frecuencia: un
+        // solo usuario en un bucle bastaba para dejar la CPU —o la GPU— ocupada
+        // indefinidamente y tumbar el asistente para todos los demás.
+        RateLimiter.Decision decision = rateLimiter.tryConsume(
+                "asistente", jwt.getSubject(), limits.assistantPerHour(), Duration.ofHours(1));
+
+        if (!decision.allowed()) {
+            // 429 con Retry-After, que es lo que un cliente puede usar para
+            // reintentar solo. Un 403 diría «no puedes», cuando lo cierto es
+            // «ahora no».
+            throw new ResponseStatusException(TOO_MANY_REQUESTS,
+                    "Has agotado tus %d preguntas por hora. Inténtalo más tarde."
+                            .formatted(limits.assistantPerHour())) {
+                @Override
+                public org.springframework.http.HttpHeaders getHeaders() {
+                    org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+                    headers.add("Retry-After", String.valueOf(decision.window().toSeconds()));
+                    return headers;
+                }
+            };
         }
 
         List<VectorRepository.Document> sources = rag.retrieve(q);

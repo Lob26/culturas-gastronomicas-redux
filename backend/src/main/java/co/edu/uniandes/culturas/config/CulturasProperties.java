@@ -21,8 +21,27 @@ public record CulturasProperties(
         Media media,
         Security security,
         Jobs jobs,
-        Assistant assistant
+        Assistant assistant,
+        Limits limits
 ) {
+
+    /**
+     * Cupos por usuario.
+     *
+     * <p>Se cuentan en Redis, no en memoria: un contador local se reinicia con
+     * cada despliegue y no se comparte entre instancias, así que con dos
+     * réplicas el límite real sería el doble del anunciado.
+     */
+    public record Limits(
+            /*
+             * Preguntas al asistente por usuario y hora. Diez es holgado para
+             * usarlo y estrecho para abusar: cada una ocupa la CPU o la GPU
+             * durante decenas de segundos, así que el recurso escaso no es el
+             * ancho de banda sino el tiempo de cómputo de la máquina.
+             */
+            @DefaultValue("10") int assistantPerHour
+    ) {
+    }
 
     /**
      * Respuestas en lenguaje natural sobre el catálogo.

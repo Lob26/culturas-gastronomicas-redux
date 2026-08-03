@@ -30,6 +30,8 @@
         <mapstruct.version>1.6.3</mapstruct.version>
         <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
         <springdoc.version>3.0.3</springdoc.version>
+        <minio.version>9.0.3</minio.version>
+        <okhttp.version>5.3.2</okhttp.version>
         <spring-ai.version>2.0.0</spring-ai.version>
     </properties>
 
@@ -87,6 +89,38 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!--
+          Cliente de MinIO. Se usa su SDK y no el de S3 de AWS porque lo único
+          que se necesita —subir, firmar una URL temporal, borrar— es idéntico
+          en los dos, y este no arrastra la cadena de credenciales, regiones y
+          resolución de endpoints de AWS para hablar con un contenedor local.
+        -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>${minio.version}</version>
+        </dependency>
+        <!--
+          OkHttp aparece en la firma pública de MinIO (`contentType(okhttp3.MediaType)`,
+          `HttpUrl`), así que hace falta para compilar contra él.
+          MinIO lo declara transitivo, pero eso NO basta.
+
+          Desde OkHttp 5, `com.squareup.okhttp3:okhttp` es un módulo de Kotlin
+          Multiplatform: su jar son 767 bytes de metadatos y las clases de JVM
+          viven en el artefacto `-jvm`. Gradle elige la variante correcta leyendo
+          el `.module`; Maven no entiende ese formato y se queda con el stub, de
+          modo que la compilación falla con «cannot access okhttp3.HttpUrl» —un
+          error que parece de nuestro código y en realidad es un jar vacío—.
+
+          Se apunta al artefacto -jvm explícitamente. La versión es la que
+          declara MinIO 9.0.3; el BOM de Spring Boot no gestiona OkHttp.
+        -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-jvm</artifactId>
+            <version>${okhttp.version}</version>
         </dependency>
 
         <!-- ====================================================== seguridad -->

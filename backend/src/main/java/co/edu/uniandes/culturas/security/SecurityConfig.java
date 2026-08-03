@@ -89,6 +89,9 @@ public class SecurityConfig {
                         // en el stack para llevar la cuenta—; sin él, un usuario
                         // registrado puede vaciar la cuota en un bucle.
                         .requestMatchers("/api/v2/asistente/**").authenticated()
+                        // Subir imágenes exige identidad: consume almacenamiento
+                        // y queda atribuido a quien lo sube.
+                        .requestMatchers(HttpMethod.POST, "/api/v2/recetas/*/imagenes").authenticated()
 
                         // Lectura del catálogo: pública.
                         .requestMatchers(HttpMethod.GET, "/api/v2/**").permitAll()

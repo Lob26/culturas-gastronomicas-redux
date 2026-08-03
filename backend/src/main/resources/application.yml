@@ -202,6 +202,8 @@ culturas:
     # nominal.
     context-size: 6
     timeout: 4m
+  limits:
+    assistant-per-hour: ${ASSISTANT_LIMIT_PER_HOUR:10}
   jobs:
     link-check:
       # Tope explícito del fan-out. Sin esto los hilos virtuales crearían miles
@@ -214,6 +216,11 @@ logging:
   level:
     root: INFO
     co.edu.uniandes.culturas: DEBUG
+  pattern:
+    # El identificador de correlación en cada línea también en el formato
+    # legible. Sin esto sólo aparecería en el JSON, y en desarrollo —que es
+    # donde más se leen los logs a ojo— no se vería.
+    correlation: "[%X{requestId:-               }] "
 
 ---
 # Perfil de tests: las migraciones y el esquema se aplican contra el Postgres
@@ -231,3 +238,24 @@ logging:
   level:
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
+
+---
+# Perfil `json`: una línea de log por objeto JSON, en formato ECS (Elastic
+# Common Schema), que es lo que espera cualquier agregador —Elastic, Loki con
+# su parser, Datadog— sin tener que escribir expresiones regulares para
+# reconstruir los campos.
+#
+# Va en un perfil y no por defecto porque en desarrollo los logs se leen a ojo
+# y el JSON es ilegible para eso. En producción se arranca con
+# `--spring.profiles.active=json`; el `requestId` del MDC entra solo, porque
+# ECS vuelca el MDC entero como campos de primer nivel.
+spring:
+  config:
+    activate:
+      on-profile: json
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    co.edu.uniandes.culturas: INFO

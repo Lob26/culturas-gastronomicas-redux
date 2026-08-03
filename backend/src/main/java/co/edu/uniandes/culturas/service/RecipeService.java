@@ -1,5 +1,6 @@
 package co.edu.uniandes.culturas.service;
 
+import co.edu.uniandes.culturas.jobs.CatalogEvents;
 import co.edu.uniandes.culturas.domain.GastronomicCulture;
 import co.edu.uniandes.culturas.domain.Ingredient;
 import co.edu.uniandes.culturas.domain.Recipe;
@@ -39,12 +40,16 @@ public class RecipeService {
     private final GastronomicCultureRepository cultureRepository;
     private final RecipeMapper mapper;
 
+    private final CatalogEvents events;
+
     public RecipeService(RecipeRepository repository,
                          GastronomicCultureRepository cultureRepository,
-                         RecipeMapper mapper) {
+                         RecipeMapper mapper,
+                         CatalogEvents events) {
         this.repository = repository;
         this.cultureRepository = cultureRepository;
         this.mapper = mapper;
+        this.events = events;
     }
 
     public PagedResponse<RecipeDtos.Summary> list(Pageable pageable) {
@@ -110,7 +115,9 @@ public class RecipeService {
         culture.addRecipe(recipe);
 
         applyStepsAndIngredients(recipe, request);
-        return mapper.toDetail(repository.save(recipe));
+        Recipe saved = repository.save(recipe);
+        events.publish("creada", "RECIPE", saved.getSlug(), saved.getName());
+        return mapper.toDetail(saved);
     }
 
     @Transactional
@@ -133,6 +140,7 @@ public class RecipeService {
         applyStepsAndIngredients(recipe, request);
 
         repository.loadImages(recipe.getId());
+        events.publish("editada", "RECIPE", recipe.getSlug(), recipe.getName());
         return mapper.toDetail(recipe);
     }
 
@@ -140,7 +148,9 @@ public class RecipeService {
     public void delete(String slug) {
         Recipe recipe = repository.findBySlug(slug)
                 .orElseThrow(() -> new ResourceNotFoundException("receta", slug));
+        String name = recipe.getName();
         repository.delete(recipe);
+        events.publish("borrada", "RECIPE", slug, name);
     }
 
     private void applyStepsAndIngredients(Recipe recipe, RecipeDtos.Request request) {
