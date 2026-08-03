@@ -103,15 +103,22 @@ tasks:
       - '{{.TF}} -chdir={{.TFDIR}} output -json urls'
 
   down:
-    desc: "Devuelve la máquina: destruye contenedores y apaga la VM de Podman (conserva los datos)"
+    desc: "Devuelve la máquina: para la VM de Podman y libera su memoria (conserva los datos)"
     cmds:
-      # Se apuntan sólo los módulos: los volúmenes viven en la raíz y sobreviven
-      # a propósito. Un `destroy` completo es `task nuke`.
-      - '{{.TF}} -chdir={{.TFDIR}} destroy -auto-approve -target=module.base_services -target=module.dependent_services'
-      # Detener los contenedores NO libera la memoria: la VM de Podman sigue
-      # arriba reteniendo sus 6 GB hasta que se la para explícitamente. Este es
-      # el motivo de que `down` haga las dos cosas — un `down` que dejara la VM
-      # corriendo no cumpliría lo que su nombre promete.
+      # Apagar la VM basta: los contenedores se paran con ella y la memoria
+      # vuelve al anfitrión, que es lo único que `down` promete.
+      #
+      # Antes esto destruía además los contenedores con `terraform destroy
+      # -target`, y no funcionaba: -target arrastra también lo que DEPENDE del
+      # objetivo, así que se llevaba por delante postgresql_extension y el
+      # borrado moría con «cannot drop extension vector because other objects
+      # depend on it» — en cuanto V5 crea recipe.embedding, el tipo `vector`
+      # tiene dependientes.
+      #
+      # Y aunque hubiera funcionado, destruir los contenedores no aportaba nada
+      # sobre pararlos: la imagen se queda igual y volver a levantarlos es un
+      # `terraform apply`. Lo que ocupaba los 6 GB era la VM. Para destruirlo
+      # todo de verdad está `task nuke`.
       - task: machine:down
 
   machine:down:

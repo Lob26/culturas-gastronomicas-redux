@@ -64,9 +64,17 @@ resource "postgresql_extension" "app" {
   name     = each.key
   database = postgresql_database.app.name
 
-  # Que un `terraform destroy` no arrastre las extensiones si alguna tabla
-  # todavía depende de ellas.
-  drop_cascade = false
+  # CASCADE al borrar, y hace falta de verdad. Sin esto, `terraform destroy`
+  # falla con «cannot drop extension vector because other objects depend on it
+  # (2BP01)»: en cuanto V5 crea la columna `recipe.embedding`, el tipo `vector`
+  # tiene dependientes y el DROP no puede prosperar.
+  #
+  # Aquí estaba escrito `drop_cascade = false` con el comentario de que así el
+  # destroy «no arrastraría» las extensiones. Es al revés, y es el mismo error
+  # que ya se cometió con prevent_destroy en los volúmenes: `false` no hace que
+  # el borrado se salte la extensión, hace que reviente. La única vía para no
+  # perder datos es no llamar a destroy — que es lo que ahora hace `task down`.
+  drop_cascade = true
 
   depends_on = [postgresql_database.app]
 }
