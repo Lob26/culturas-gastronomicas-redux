@@ -1,0 +1,92 @@
+{
+  "name": "Mantenimiento nocturno",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * *"
+            }
+          ]
+        }
+      },
+      "id": "a1f0c4de-0001-4000-8000-000000000001",
+      "name": "Cada noche a las 3",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-200, 0],
+      "notes": "A las 3 y no a medianoche: a las 00:00 arrancan a la vez todos los cron mal repartidos del mundo."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CULTURAS_API_URL }}/api/v2/jobs/reindexar",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CULTURAS_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "a1f0c4de-0001-4000-8000-000000000002",
+      "name": "Reindexar embeddings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [20, -100],
+      "notes": "Idempotente: sólo recalcula lo que no tiene vector o lo tiene desactualizado. Si no cambió nada, no hace nada."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CULTURAS_API_URL }}/api/v2/jobs/verificar-enlaces",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CULTURAS_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "a1f0c4de-0001-4000-8000-000000000003",
+      "name": "Verificar enlaces",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [20, 100],
+      "notes": "Devuelve el id del trabajo de inmediato; el progreso va por SSE. Aquí sólo interesa dispararlo."
+    }
+  ],
+  "connections": {
+    "Cada noche a las 3": {
+      "main": [
+        [
+          {
+            "node": "Reindexar embeddings",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Verificar enlaces",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

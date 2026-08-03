@@ -1,0 +1,60 @@
+{
+  "name": "Reindexar al cambiar el catálogo",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "catalogo-cambiado",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "b2e1d5ef-0002-4000-8000-000000000001",
+      "name": "Catálogo cambiado",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-200, 0],
+      "webhookId": "b2e1d5ef-0002-4000-8000-0000000000ff",
+      "notes": "Se dispara al crear o editar una receta. Sin esto, un plato nuevo no aparece en la búsqueda semántica hasta la pasada de las 3 de la mañana."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CULTURAS_API_URL }}/api/v2/jobs/reindexar",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.CULTURAS_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "b2e1d5ef-0002-4000-8000-000000000002",
+      "name": "Reindexar lo pendiente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [40, 0],
+      "notes": "Reindexa lo pendiente, no la fila concreta que avisó. Así dos webhooks solapados no compiten, y uno perdido se recupera solo en la siguiente pasada."
+    }
+  ],
+  "connections": {
+    "Catálogo cambiado": {
+      "main": [
+        [
+          {
+            "node": "Reindexar lo pendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

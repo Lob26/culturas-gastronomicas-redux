@@ -37,6 +37,36 @@ variable "container_host" {
   default     = "npipe:////./pipe/docker_engine"
 }
 
+variable "host_api_url" {
+  description = <<-EOT
+    Cómo alcanza n8n al backend, que corre en el anfitrión y no en un contenedor.
+
+    El valor por defecto vale en Podman/Docker sobre Linux, donde
+    `host.containers.internal` apunta al anfitrión de verdad.
+
+    En Podman para Windows NO vale, y el síntoma engaña: los contenedores
+    corren dentro de una VM de WSL2, así que `host.containers.internal`
+    resuelve a la puerta de enlace de ESA VM (169.254.1.2) y no a Windows, que
+    es donde escucha la JVM. El webhook devuelve entonces un 500 cuyo cuerpo
+    es sólo «Error in workflow»; el ECONNREFUSED únicamente aparece en el log
+    del contenedor.
+
+    La dirección correcta ahí es la puerta de enlace por defecto de la VM:
+
+      podman machine ssh "ip route | awk '/default/{print \$3}'"
+
+    y se pasa con -var, porque WSL la reasigna y fijarla en el repositorio
+    dejaría un valor que caduca en el siguiente reinicio.
+  EOT
+  type        = string
+  default     = "http://host.containers.internal:8080"
+
+  validation {
+    condition     = can(regex("^https?://", var.host_api_url))
+    error_message = "host_api_url debe incluir el esquema (http:// o https://)."
+  }
+}
+
 # El corazón del diseño: un único mapa describe TODO el stack. Añadir un
 # servicio es añadir una entrada aquí, no copiar un bloque de recursos.
 # Los `optional()` con valor por defecto evitan repetir lo que casi nunca cambia.

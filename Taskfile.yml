@@ -88,8 +88,17 @@ tasks:
   up:
     desc: Aplica la infraestructura (postgres, redis, minio, n8n) y genera el .env
     deps: [infra:init]
+    vars:
+      # Sólo en Podman para Windows: los contenedores corren dentro de una VM de
+      # WSL2, así que `host.containers.internal` apunta a la puerta de enlace de
+      # esa VM y no a Windows, que es donde escucha el backend. Se detecta la
+      # dirección buena en vez de fijarla, porque WSL la reasigna al reiniciar.
+      # En Linux el comando no existe, la variable queda vacía y Terraform usa
+      # su valor por defecto, que allí sí es correcto.
+      HOST_GATEWAY:
+        sh: podman machine ssh "ip route | awk '/default/{print $3}'" 2>/dev/null | tr -d '\r' || true
     cmds:
-      - '{{.TF}} -chdir={{.TFDIR}} apply -input=false -auto-approve'
+      - '{{.TF}} -chdir={{.TFDIR}} apply -input=false -auto-approve {{if .HOST_GATEWAY}}-var="host_api_url=http://{{.HOST_GATEWAY}}:8080"{{end}}'
       - '{{.TF}} -chdir={{.TFDIR}} output -json urls'
 
   down:
@@ -224,22 +233,12 @@ tasks:
     cmds:
       - npx playwright test
 
-  # ---------------------------------------------------------------- cliente --
+  # ------------------------------------------------------------------ spec --
 
-  gen:client:
-    desc: Regenera el cliente TypeScript a partir del OpenAPI del backend
+  spec:
+    desc: Descarga el OpenAPI del backend (requiere el backend arriba)
     cmds:
-      # Requiere el backend arriba: Orval lee el spec en vivo.
       - curl -sf http://localhost:8080/v3/api-docs -o {{.FRONTEND}}/openapi.json
-      - cmd: cd {{.FRONTEND}} && npx orval --config orval.config.ts
-
-  gen:check:
-    desc: "CI: falla si el cliente generado quedó desactualizado respecto al spec"
-    cmds:
-      - task: gen:client
-      # Un diff no vacío significa que alguien cambió la API sin regenerar el
-      # cliente: exactamente la deriva que hundió al proyecto de 2023.
-      - git diff --exit-code -- {{.FRONTEND}}/src/api
 
   # ------------------------------------------------------------------- n8n --
 
@@ -247,6 +246,17 @@ tasks:
     desc: Importa a n8n los workflows versionados en workflows/
     cmds:
       - '{{.CONTAINER}} exec culturas-automation n8n import:workflow --separate --input=/workflows'
+
+  n8n:publish:
+    desc: Publica (activa) los workflows importados y reinicia n8n para que surtan efecto
+    cmds:
+      # n8n avisa de que los cambios no se aplican mientras está corriendo, así
+      # que el reinicio es parte del procedimiento, no una precaución.
+      - |
+        for id in $({{.CONTAINER}} exec culturas-automation n8n list:workflow | cut -d'|' -f1); do
+          {{.CONTAINER}} exec culturas-automation n8n publish:workflow --id="$id"
+        done
+      - '{{.CONTAINER}} restart culturas-automation'
 
   n8n:export:
     desc: Exporta los workflows de n8n al repo para versionarlos
@@ -265,4 +275,5 @@ tasks:
       - task: backend:verify
       - task: frontend:build
       - task: frontend:test
-      - task: gen:check
+      # El E2E va al final porque es el único que necesita el stack levantado.
+      - task: e2e

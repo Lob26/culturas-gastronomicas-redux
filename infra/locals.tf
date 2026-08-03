@@ -65,8 +65,19 @@ locals {
       WEBHOOK_URL            = "http://localhost:${var.services.automation.published_port}/"
       # Podman rootless no ofrece host.docker.internal; el nombre equivalente
       # para alcanzar al anfitrión desde el contenedor es este.
-      CULTURAS_API_URL = "http://host.containers.internal:8080"
+      CULTURAS_API_URL = var.host_api_url
       CULTURAS_API_KEY = random_password.api_key.result
+      # n8n bloquea $env dentro de las expresiones por defecto, así que sin
+      # esto los nodos HTTP fallan con «access to env vars denied» y el webhook
+      # devuelve un 500 cuyo cuerpo es sólo «Error in workflow» — el motivo real
+      # únicamente aparece en el log del contenedor.
+      #
+      # Se desbloquea en lugar de guardar la clave en una credencial de n8n
+      # porque las credenciales viven en SU base de datos: quedarían fuera de
+      # Terraform, no se podrían versionar junto a los workflows y habría que
+      # recrearlas a mano tras cada `task nuke`. Con la clave en el entorno, la
+      # única fuente de verdad sigue siendo random_password.api_key.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE = "false"
     }
   }
 

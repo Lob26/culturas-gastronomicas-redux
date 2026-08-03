@@ -1,11 +1,22 @@
 /**
  * Tipos del contrato con la API.
  *
- * <p>Escritos a mano por ahora; en la Fase 5 los genera Orval a partir del
- * OpenAPI del backend y CI falla si el resultado difiere de lo versionado. Esa
- * comprobación existe por lo que pasó en 2023: el frontend llamaba a
- * `/categories/{nombre}` contra un backend que sólo aceptaba `?id=`, y nada lo
- * detectaba porque ningún test cruzaba la frontera.
+ * <p>Escritos a mano, y no generados con Orval como se planteó al principio.
+ * Lo que se buscaba con la generación era detectar la deriva entre las dos
+ * mitades: en 2023 el frontend llamaba a `/categories/{nombre}` contra un
+ * backend que sólo aceptaba `?id=`, y nada lo detectaba porque ningún test
+ * cruzaba la frontera.
+ *
+ * <p>Esa frontera hoy la cruza el test end-to-end, que llama a los endpoints
+ * de verdad contra el backend de verdad. Es una comprobación más fuerte que
+ * diferenciar un cliente generado: un diff limpio sólo demuestra que los tipos
+ * coinciden con el spec, no que la llamada funcione. Generar además el cliente
+ * añadiría una segunda representación del mismo contrato —y el trabajo de
+ * mantenerla— para cubrir algo que ya está cubierto.
+ *
+ * <p>El spec sigue siendo descargable con `task spec` para inspeccionarlo o
+ * para alimentar a un generador el día que haya un consumidor externo, que es
+ * cuando la generación empieza a pagar por sí sola.
  */
 
 export interface PagedResponse<T> {
