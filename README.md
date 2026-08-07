@@ -140,12 +140,22 @@ task backend:dev
 
 # 3 — el modelo local. Sólo lo necesita el asistente.
 task llm:up          # se queda en primer plano; Ctrl-C para pararlo
-task llm:pull        # una vez, ~2,5 GB — EN OTRA TERMINAL, con llm:up ya corriendo
 
 # 4 — los tests. Levanta el dev server de Angular por su cuenta.
 task reindex         # calcula los embeddings (el backend tiene que estar arriba)
 task e2e
 ```
+
+La primera vez, y sólo la primera, hace falta descargar el modelo:
+`task llm:pull` (~2,5 GB). Va en una quinta terminal —o en la cuarta antes de
+los tests— y **con `llm:up` ya corriendo**: `ollama pull` no levanta el
+servidor, habla con uno que ya escuche.
+
+Tiempos medidos en un arranque de verdad desde la VM parada, con las imágenes
+y el modelo ya en caché: `setup` 27 s, el backend acepta peticiones a los 6 s,
+y `reindex` + `e2e` 1 min 38 s. Algo más de dos minutos en total. Si el backend
+tarda mucho más la primera vez, es que está bajando el modelo de embeddings
+(118 MB), no que se haya colgado.
 
 `task e2e` **no necesita el paso 3**: sin Ollama el asistente responde 503 y su
 test comprueba justamente esa degradación. Con Ollama en marcha, el mismo test
