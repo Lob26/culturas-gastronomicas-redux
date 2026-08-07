@@ -120,40 +120,38 @@ tasks:
       # contenedor en Exited(1) y el puerto 5678 muerto, mientras los demás
       # parecen sanos. El `depends_on` de Terraform ordena la CREACIÓN, no un
       # `podman start` posterior.
-      # Arrancar contenedores parados tras apagar la VM tiene DOS fallos de red
-      # de netavark, los dos silenciosos:
+      # SÓLO se invoca a podman. Nada de wc, tr, sort ni grep.
       #
-      #   - alguno queda corriendo sin IP ninguna;
-      #   - o peor, dos reciben la MISMA IP. Visto: n8n y Postgres ambos en
-      #     10.89.0.2, de modo que n8n se conectaba a sí mismo y moría con
-      #     «connect ECONNREFUSED 10.89.0.2:5432».
+      # Task no usa cmd.exe ni bash: trae su propio intérprete POSIX, que
+      # entiende la sintaxis del shell pero para los comandos externos depende
+      # del PATH de Windows. Ahí no hay utilidades Unix, así que una tubería a
+      # `wc` muere con «"wc": executable file not found in $PATH» y exit 127.
+      # Funcionaba al probarlo desde Git Bash y fallaba al ejecutarlo como se
+      # ejecuta de verdad.
       #
-      # En los dos casos `podman ps` los muestra Up y no hay ningún error: sólo
-      # se nota porque el puerto 5678 no responde mientras el resto parece sano.
-      # Pararlos TODOS y volver a arrancarlos en orden libera las concesiones y
-      # reparte direcciones únicas.
+      # Se para todo y se arranca en orden, siempre, sin comprobar antes si
+      # hacía falta: comprobarlo exigía contar y comparar IPs, que es
+      # justamente lo que necesitaba esas utilidades. Cuesta unos segundos y a
+      # cambio evita dos fallos de red de netavark que son SILENCIOSOS —un
+      # contenedor sin IP, o dos con la misma, con `podman ps` mostrándolos Up
+      # y sin un solo error—. Vistos en vivo: n8n y Postgres ambos en
+      # 10.89.0.2, con n8n conectándose a sí mismo.
       #
-      # Se hace sólo si hace falta —si falta alguno por arrancar o si las IPs no
-      # son únicas— para no reiniciar un stack sano: `task up` puede ejecutarse
-      # con el backend conectado, y reiniciar Poststgres le rompería el pool.
-      - |
-        FILTRO="label=managed-by=terraform"
-        total=$({{.CONTAINER}} ps -aq --filter "$FILTRO" | wc -l | tr -d ' ')
-        [ "$total" -eq 0 ] && exit 0   # primer arranque: aún no hay nada
-
-        vivos=$({{.CONTAINER}} ps -q --filter "$FILTRO" | wc -l | tr -d ' ')
-        ips=$({{.CONTAINER}} ps -q --filter "$FILTRO" | while read -r id; do
-                {{.CONTAINER}} inspect "$id" --format '{{"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"}}'
-              done)
-        unicas=$(printf '%s\n' "$ips" | grep -v '^$' | sort -u | wc -l | tr -d ' ')
-
-        if [ "$vivos" -ne "$total" ] || [ "$unicas" -ne "$vivos" ]; then
-          echo "  Reiniciando los contenedores en orden (faltan o comparten IP)"
-          {{.CONTAINER}} stop $({{.CONTAINER}} ps -aq --filter "$FILTRO") >/dev/null 2>&1 || true
-          {{.CONTAINER}} start culturas-database >/dev/null 2>&1 || true
-          {{.CONTAINER}} exec culturas-database sh -c 'until pg_isready -q; do sleep 1; done' >/dev/null 2>&1 || true
-          {{.CONTAINER}} start $({{.CONTAINER}} ps -aq --filter "$FILTRO") >/dev/null 2>&1 || true
-        fi
+      # Consecuencia a tener presente: si el backend está corriendo, esto
+      # reinicia Postgres por debajo y hay que reiniciarlo. Levanta el stack
+      # antes que el backend.
+      - cmd: '{{.CONTAINER}} stop $({{.CONTAINER}} ps -q --filter label=managed-by=terraform)'
+        ignore_error: true
+      # La base primero y sola: n8n guarda su estado en Postgres y se cae al
+      # instante si aún no acepta conexiones.
+      - cmd: '{{.CONTAINER}} start culturas-database'
+        ignore_error: true
+      - cmd: '{{.CONTAINER}} exec culturas-database sh -c "until pg_isready -q; do sleep 1; done"'
+        ignore_error: true
+      # Y el resto. En el primer arranque no existe ninguno, `podman start` se
+      # queda sin argumentos y falla; por eso se ignora el error.
+      - cmd: '{{.CONTAINER}} start $({{.CONTAINER}} ps -aq --filter label=managed-by=terraform)'
+        ignore_error: true
 
   infra:plan:
     desc: Muestra qué cambiaría sin aplicar nada
@@ -421,8 +419,13 @@ tasks:
     cmds:
       # n8n avisa de que los cambios no se aplican mientras está corriendo, así
       # que el reinicio es parte del procedimiento, no una precaución.
+      # Los identificadores salen de los JSON del repositorio con node, no de
+      # `n8n list:workflow | cut`: `cut` no existe en el PATH de Windows y Task
+      # usa su propio intérprete, así que esa tubería moría con exit 127. node
+      # sí está —lo necesita el frontend— y además la fuente es mejor: el
+      # repositorio es quien manda sobre qué workflows hay.
       - |
-        for id in $({{.CONTAINER}} exec culturas-automation n8n list:workflow | cut -d'|' -f1); do
+        for id in $(node -e "const fs=require('node:fs');for(const f of fs.readdirSync('workflows')){if(f.endsWith('.json')){const w=JSON.parse(fs.readFileSync('workflows/'+f,'utf8'));if(w.id)console.log(w.id)}}"); do
           {{.CONTAINER}} exec culturas-automation n8n publish:workflow --id="$id"
         done
       # Parar y arrancar por separado, NO `restart`. `podman restart` falla de
@@ -441,13 +444,23 @@ tasks:
       # n8n tarda unos segundos en volver tras un arranque, y hasta entonces un
       # `podman exec` contra él responde «container state improper». Esperar
       # aquí evita que la siguiente tarea falle por ir demasiado deprisa.
-      - |
-        for i in $(seq 1 40); do
-          curl -sf "http://localhost:${N8N_PORT}/healthz" >/dev/null 2>&1 && exit 0
-          sleep 2
-        done
-        echo "n8n no respondió en http://localhost:${N8N_PORT} tras 80 s"
-        exit 1
+      #
+      # El reintento lo hace curl y no un bucle de shell: `seq` y `sleep` no
+      # existen en Windows fuera de Git Bash, y Task usa su propio intérprete
+      # con el PATH del sistema, así que un bucle así muere con
+      # «"seq": executable file not found in $PATH». `--retry-connrefused` es
+      # imprescindible: sin él, curl no reintenta cuando aún no hay nadie
+      # escuchando, que es justo el caso.
+      # `--retry-all-errors` además de `--retry-connrefused`, y hacen falta las
+      # dos por motivos distintos. Podman publica el puerto en cuanto arranca el
+      # contenedor, así que la conexión se establece enseguida: lo que devuelve
+      # n8n mientras arranca es un 404, no un rechazo. `--retry` por sí solo NO
+      # reintenta ante un error HTTP —sólo ante fallos transitorios— de modo que
+      # `-f` fallaba a la primera pese a los 40 reintentos configurados.
+      - >-
+        curl -sf --retry 40 --retry-delay 2 --retry-connrefused --retry-all-errors
+        "http://localhost:${N8N_PORT}/healthz" > /dev/null
+        || { echo "n8n no respondió en http://localhost:${N8N_PORT} tras 80 s"; exit 1; }
 
   n8n:export:
     desc: Exporta los workflows de n8n al repo para versionarlos
@@ -463,14 +476,17 @@ tasks:
       # Mantener el montaje de sólo lectura y copiar explícitamente es mejor
       # que abrirlo: n8n no debe poder reescribir el repositorio por su cuenta,
       # y traer los cambios pasa a ser un acto deliberado de quien ejecuta esto.
+      # El `rm`/`mkdir` de dentro del contenedor son de Linux y no dan problema;
+      # los de fuera van por node, porque en Windows no existen en el PATH que
+      # ve el intérprete de Task.
       - '{{.CONTAINER}} exec culturas-automation sh -c "rm -rf /tmp/wf && mkdir -p /tmp/wf && n8n export:workflow --all --separate --output=/tmp/wf"'
-      - rm -rf .n8n-export && mkdir -p .n8n-export
+      - node -e "const fs=require('node:fs');fs.rmSync('.n8n-export',{recursive:true,force:true});fs.mkdirSync('.n8n-export',{recursive:true})"
       - '{{.CONTAINER}} cp culturas-automation:/tmp/wf/. ./.n8n-export/'
       # n8n nombra lo exportado por identificador y el repositorio lo nombra por
       # lo que hace, así que copiar sin más dejaba ocho archivos donde había
       # cuatro. Esto los empareja por el campo `id` y respeta los nombres.
       - node tools/n8n/merge-export.mjs .n8n-export workflows
-      - rm -rf .n8n-export
+      - node -e "require('node:fs').rmSync('.n8n-export',{recursive:true,force:true})"
       - cmd: echo "Revisa 'git diff workflows/' antes de commitear."
         silent: true
 
