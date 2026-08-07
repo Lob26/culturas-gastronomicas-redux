@@ -139,8 +139,8 @@ task setup
 task backend:dev
 
 # 3 — el modelo local. Sólo lo necesita el asistente.
-task llm:pull        # una vez, ~2,5 GB
 task llm:up          # se queda en primer plano; Ctrl-C para pararlo
+task llm:pull        # una vez, ~2,5 GB — EN OTRA TERMINAL, con llm:up ya corriendo
 
 # 4 — los tests. Levanta el dev server de Angular por su cuenta.
 task reindex         # calcula los embeddings (el backend tiene que estar arriba)

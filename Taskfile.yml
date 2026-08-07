@@ -102,6 +102,28 @@ tasks:
     cmds:
       - '{{.TF}} -chdir={{.TFDIR}} init -input=false'
 
+  containers:start:
+    internal: true
+    desc: Arranca los contenedores que ya existan pero estén parados
+    cmds:
+      # Hace falta ANTES de `terraform apply`, y el motivo es un huevo-y-gallina
+      # del propio diseño: los proveedores de postgresql y minio se conectan a
+      # los servicios durante el plan, para leer el estado de roles, bases y
+      # buckets. Esos servicios son contenedores que gestiona el mismo
+      # Terraform, así que tras un `task down` —que para la VM y con ella los
+      # contenedores— el plan falla con «connection refused» antes de llegar a
+      # arrancarlos.
+      #
+      # En el primer arranque no hay contenedores, `podman start` no recibe
+      # argumentos y falla; por eso se ignora el error. Se filtra por la
+      # etiqueta que pone Terraform para no tocar contenedores ajenos.
+      - cmd: '{{.CONTAINER}} start $({{.CONTAINER}} ps -aq --filter label=managed-by=terraform)'
+        ignore_error: true
+      # Postgres tarda un instante en aceptar conexiones después de arrancar, y
+      # el proveedor no reintenta: si se le adelanta, vuelve el mismo error.
+      - cmd: '{{.CONTAINER}} exec culturas-database sh -c "until pg_isready -q; do sleep 1; done"'
+        ignore_error: true
+
   infra:plan:
     desc: Muestra qué cambiaría sin aplicar nada
     cmds:
@@ -116,6 +138,8 @@ tasks:
   up:
     desc: Aplica la infraestructura (postgres, redis, minio, n8n) y genera el .env
     deps: [infra:init]
+    # `deps` corre en paralelo, así que arrancar los contenedores va aquí, en
+    # cmds, para garantizar que sucede ANTES del apply y no a la vez.
     vars:
       # Sólo en Podman para Windows: los contenedores corren dentro de una VM de
       # WSL2, así que `host.containers.internal` apunta a la puerta de enlace de
@@ -126,6 +150,7 @@ tasks:
       HOST_GATEWAY:
         sh: podman machine ssh "ip route | awk '/default/{print $3}'" 2>/dev/null | tr -d '\r' || true
     cmds:
+      - task: containers:start
       - '{{.TF}} -chdir={{.TFDIR}} apply -input=false -auto-approve {{if .HOST_GATEWAY}}-var="host_api_url=http://{{.HOST_GATEWAY}}:8080"{{end}}'
       - '{{.TF}} -chdir={{.TFDIR}} output -json urls'
 
@@ -182,14 +207,31 @@ tasks:
       - ollama serve
 
   llm:pull:
-    desc: Descarga el modelo local (una sola vez, ~2.5 GB)
+    desc: "Descarga el modelo local (~2.5 GB). Requiere 'task llm:up' corriendo"
     cmds:
+      # `ollama pull` NO levanta el servidor: habla con uno que ya esté
+      # escuchando. Se instala sólo el binario, sin servicio ni autoarranque —a
+      # propósito, para no dejar nada residente— así que sin `llm:up` delante
+      # esto responde «could not locate ollama app», que suena a instalación
+      # rota y no lo es.
+      #
+      # Por eso el orden correcto es al revés de lo que parece: primero
+      # `llm:up` en una terminal, y `llm:pull` en otra.
+      - |
+        curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 || {
+          echo "Ollama no está escuchando en :11434."
+          echo "Arranca 'task llm:up' en otra terminal y vuelve a lanzar esto."
+          exit 1
+        }
       - ollama pull {{.LLM_MODEL}}
 
   llm:status:
     desc: Muestra qué modelos hay cargados en memoria ahora mismo
     cmds:
-      - cmd: ollama ps
+      # Con Ollama parado, `ollama ps` responde «could not locate ollama app»,
+      # que suena a instalación rota cuando en realidad es la respuesta
+      # correcta: no hay ningún modelo cargado porque no hay servidor.
+      - cmd: ollama ps || echo "Ollama no está en marcha (arráncalo con 'task llm:up'); no hay modelos cargados."
         ignore_error: true
 
   console:
@@ -237,7 +279,18 @@ tasks:
   backend:verify:
     dir: '{{.BACKEND}}'
     desc: Suite completa, incluidos los tests de integración con Testcontainers
+    env:
+      # Ryuk es el contenedor que Testcontainers usa para recoger los suyos al
+      # terminar la JVM. Con Podman NO funciona: necesita montar el socket de
+      # Docker en /var/run/docker.sock, que no es donde Podman lo pone, así que
+      # arranca, queda inalcanzable —«Can not connect to Ryuk at localhost:…»—
+      # y no recoge nada. Se apaga para no levantar un contenedor inútil por
+      # cada ejecución, y la limpieza la hace el `defer` de abajo.
+      TESTCONTAINERS_RYUK_DISABLED: 'true'
     cmds:
+      # `defer` corre también si los tests fallan, que es justo cuando más
+      # interesa: una suite en rojo no debe además dejar basura.
+      - defer: '{{.CONTAINER}} rm -f $({{.CONTAINER}} ps -aq --filter label=org.testcontainers=true) 2>/dev/null || true'
       - '{{.MVNW}} verify'
 
   # Las credenciales van por línea de comandos desde el .env que genera
@@ -298,7 +351,11 @@ tasks:
   spec:
     desc: Descarga el OpenAPI del backend (requiere el backend arriba)
     cmds:
-      - curl -sf http://localhost:8080/v3/api-docs -o {{.FRONTEND}}/openapi.json
+      # Sin el `||`, con el backend parado esto sale con «exit status 7», que es
+      # el código de curl para «no pude conectar» y no se lo sabe nadie.
+      - >-
+        curl -sf http://localhost:8080/v3/api-docs -o {{.FRONTEND}}/openapi.json
+        || { echo "No respondió http://localhost:8080. ¿Está corriendo 'task backend:dev'?"; exit 1; }
 
   # ------------------------------------------------------------------- n8n --
 
@@ -316,12 +373,54 @@ tasks:
         for id in $({{.CONTAINER}} exec culturas-automation n8n list:workflow | cut -d'|' -f1); do
           {{.CONTAINER}} exec culturas-automation n8n publish:workflow --id="$id"
         done
-      - '{{.CONTAINER}} restart culturas-automation'
+      # Parar y arrancar por separado, NO `restart`. `podman restart` falla de
+      # forma intermitente al reasignar la IP en la red de usuario, con
+      # «netavark (exit code 1): no static ips provided», y deja el contenedor
+      # tumbado — de modo que la siguiente tarea se encuentra un «container
+      # state improper» que no menciona la causa por ninguna parte.
+      - '{{.CONTAINER}} stop culturas-automation'
+      - '{{.CONTAINER}} start culturas-automation'
+      - task: n8n:wait
+
+  n8n:wait:
+    internal: true
+    desc: Espera a que n8n vuelva a aceptar peticiones
+    cmds:
+      # n8n tarda unos segundos en volver tras un arranque, y hasta entonces un
+      # `podman exec` contra él responde «container state improper». Esperar
+      # aquí evita que la siguiente tarea falle por ir demasiado deprisa.
+      - |
+        for i in $(seq 1 40); do
+          curl -sf "http://localhost:${N8N_PORT}/healthz" >/dev/null 2>&1 && exit 0
+          sleep 2
+        done
+        echo "n8n no respondió en http://localhost:${N8N_PORT} tras 80 s"
+        exit 1
 
   n8n:export:
     desc: Exporta los workflows de n8n al repo para versionarlos
+    deps: [n8n:wait]
     cmds:
-      - '{{.CONTAINER}} exec culturas-automation n8n export:workflow --all --separate --output=/workflows'
+      # Se exporta a una ruta escribible DENTRO del contenedor y luego se copia
+      # fuera, en vez de escribir directamente en /workflows.
+      #
+      # El montaje del repositorio es de sólo lectura a propósito (infra:
+      # bind_mounts), así que exportar encima fallaba con «EROFS: read-only
+      # file system» — la tarea no podía funcionar tal y como estaba escrita.
+      #
+      # Mantener el montaje de sólo lectura y copiar explícitamente es mejor
+      # que abrirlo: n8n no debe poder reescribir el repositorio por su cuenta,
+      # y traer los cambios pasa a ser un acto deliberado de quien ejecuta esto.
+      - '{{.CONTAINER}} exec culturas-automation sh -c "rm -rf /tmp/wf && mkdir -p /tmp/wf && n8n export:workflow --all --separate --output=/tmp/wf"'
+      - rm -rf .n8n-export && mkdir -p .n8n-export
+      - '{{.CONTAINER}} cp culturas-automation:/tmp/wf/. ./.n8n-export/'
+      # n8n nombra lo exportado por identificador y el repositorio lo nombra por
+      # lo que hace, así que copiar sin más dejaba ocho archivos donde había
+      # cuatro. Esto los empareja por el campo `id` y respeta los nombres.
+      - node tools/n8n/merge-export.mjs .n8n-export workflows
+      - rm -rf .n8n-export
+      - cmd: echo "Revisa 'git diff workflows/' antes de commitear."
+        silent: true
 
   # ------------------------------------------------------------------ meta --
 
