@@ -30,13 +30,25 @@ class SchemaAndConstraintsIT {
     JdbcClient jdbc;
 
     @Test
-    @DisplayName("las migraciones se aplican todas y en orden")
+    @DisplayName("las migraciones se aplican todas, en orden y ninguna falla")
     void migrationsApply() {
-        var versions = jdbc.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
+        var aplicadas = jdbc.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
                 .query(String.class)
                 .list();
 
-        assertThat(versions).containsExactly("1", "2", "3", "4", "5");
+        // `containsSubsequence` y NO `containsExactly`: la lista exacta obliga a
+        // tocar este test cada vez que se añade una migración, y entonces deja
+        // de comprobar nada —se actualiza por costumbre—. Lo que importa es que
+        // las estructurales sigan estando y en su orden; las que vengan detrás
+        // son legítimas.
+        assertThat(aplicadas).containsSubsequence("1", "2", "3", "4", "5");
+
+        // Y lo que de verdad no puede pasar: una migración registrada como
+        // fallida. Flyway se planta al arrancar si la encuentra, así que verla
+        // aquí significaría una base a medio migrar.
+        Integer fallidas = jdbc.sql("SELECT count(*) FROM flyway_schema_history WHERE NOT success")
+                .query(Integer.class).single();
+        assertThat(fallidas).isZero();
     }
 
     @Test

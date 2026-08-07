@@ -305,7 +305,12 @@ tasks:
     dir: '{{.BACKEND}}'
     desc: Aplica las migraciones y carga los datos de ejemplo
     cmds:
-      - '{{.MVNW}} -q flyway:migrate {{.FLYWAY_ARGS}}'
+      # `process-resources` ANTES de migrar, y no es opcional: las migraciones se
+      # leen de `classpath:db/migration`, que es target/classes, no src. Sin
+      # copiarlas primero, Flyway aplica la versión ANTERIOR de los archivos y
+      # dice que todo fue bien —una migración nueva sencillamente no existe para
+      # él—. Es el peor fallo posible aquí: silencioso y con exit 0.
+      - '{{.MVNW}} -q process-resources flyway:migrate {{.FLYWAY_ARGS}}'
 
   reindex:
     desc: Calcula los embeddings pendientes del catálogo (requiere el backend arriba)
@@ -320,7 +325,9 @@ tasks:
     dir: '{{.BACKEND}}'
     desc: Muestra el estado de las migraciones de Flyway
     cmds:
-      - '{{.MVNW}} flyway:info {{.FLYWAY_ARGS}}'
+      # Mismo motivo que en `seed`: sin process-resources, el informe describe
+      # las migraciones que había en el último build, no las del código fuente.
+      - '{{.MVNW}} -q process-resources flyway:info {{.FLYWAY_ARGS}}'
 
   # -------------------------------------------------------------- frontend ---
 
