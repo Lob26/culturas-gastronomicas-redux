@@ -114,15 +114,46 @@ tasks:
       # contenedores— el plan falla con «connection refused» antes de llegar a
       # arrancarlos.
       #
-      # En el primer arranque no hay contenedores, `podman start` no recibe
-      # argumentos y falla; por eso se ignora el error. Se filtra por la
-      # etiqueta que pone Terraform para no tocar contenedores ajenos.
-      - cmd: '{{.CONTAINER}} start $({{.CONTAINER}} ps -aq --filter label=managed-by=terraform)'
-        ignore_error: true
-      # Postgres tarda un instante en aceptar conexiones después de arrancar, y
-      # el proveedor no reintenta: si se le adelanta, vuelve el mismo error.
-      - cmd: '{{.CONTAINER}} exec culturas-database sh -c "until pg_isready -q; do sleep 1; done"'
-        ignore_error: true
+      # La base PRIMERO y sola. Arrancarlo todo a la vez provoca una carrera:
+      # n8n guarda su estado en Postgres y se cae al instante si aún no acepta
+      # conexiones —«connect ECONNREFUSED 10.89.0.2:5432»— dejando el
+      # contenedor en Exited(1) y el puerto 5678 muerto, mientras los demás
+      # parecen sanos. El `depends_on` de Terraform ordena la CREACIÓN, no un
+      # `podman start` posterior.
+      # Arrancar contenedores parados tras apagar la VM tiene DOS fallos de red
+      # de netavark, los dos silenciosos:
+      #
+      #   - alguno queda corriendo sin IP ninguna;
+      #   - o peor, dos reciben la MISMA IP. Visto: n8n y Postgres ambos en
+      #     10.89.0.2, de modo que n8n se conectaba a sí mismo y moría con
+      #     «connect ECONNREFUSED 10.89.0.2:5432».
+      #
+      # En los dos casos `podman ps` los muestra Up y no hay ningún error: sólo
+      # se nota porque el puerto 5678 no responde mientras el resto parece sano.
+      # Pararlos TODOS y volver a arrancarlos en orden libera las concesiones y
+      # reparte direcciones únicas.
+      #
+      # Se hace sólo si hace falta —si falta alguno por arrancar o si las IPs no
+      # son únicas— para no reiniciar un stack sano: `task up` puede ejecutarse
+      # con el backend conectado, y reiniciar Poststgres le rompería el pool.
+      - |
+        FILTRO="label=managed-by=terraform"
+        total=$({{.CONTAINER}} ps -aq --filter "$FILTRO" | wc -l | tr -d ' ')
+        [ "$total" -eq 0 ] && exit 0   # primer arranque: aún no hay nada
+
+        vivos=$({{.CONTAINER}} ps -q --filter "$FILTRO" | wc -l | tr -d ' ')
+        ips=$({{.CONTAINER}} ps -q --filter "$FILTRO" | while read -r id; do
+                {{.CONTAINER}} inspect "$id" --format '{{"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"}}'
+              done)
+        unicas=$(printf '%s\n' "$ips" | grep -v '^$' | sort -u | wc -l | tr -d ' ')
+
+        if [ "$vivos" -ne "$total" ] || [ "$unicas" -ne "$vivos" ]; then
+          echo "  Reiniciando los contenedores en orden (faltan o comparten IP)"
+          {{.CONTAINER}} stop $({{.CONTAINER}} ps -aq --filter "$FILTRO") >/dev/null 2>&1 || true
+          {{.CONTAINER}} start culturas-database >/dev/null 2>&1 || true
+          {{.CONTAINER}} exec culturas-database sh -c 'until pg_isready -q; do sleep 1; done' >/dev/null 2>&1 || true
+          {{.CONTAINER}} start $({{.CONTAINER}} ps -aq --filter "$FILTRO") >/dev/null 2>&1 || true
+        fi
 
   infra:plan:
     desc: Muestra qué cambiaría sin aplicar nada
@@ -150,8 +181,22 @@ tasks:
       HOST_GATEWAY:
         sh: podman machine ssh "ip route | awk '/default/{print $3}'" 2>/dev/null | tr -d '\r' || true
     cmds:
+      # `down` para la VM, así que `up` tiene que levantarla: si no, la pareja
+      # up/down es asimétrica y el segundo `up` falla con «open
+      # //./pipe/docker_engine: The system cannot find the file specified»,
+      # un mensaje sobre privilegios de Docker que no tiene nada que ver con lo
+      # que pasa —simplemente no hay VM—.
+      - task: machine:up
+      # Antes del apply: los proveedores de postgresql y minio se conectan
+      # durante el PLAN, así que sus servicios tienen que estar en pie.
       - task: containers:start
       - '{{.TF}} -chdir={{.TFDIR}} apply -input=false -auto-approve {{if .HOST_GATEWAY}}-var="host_api_url=http://{{.HOST_GATEWAY}}:8080"{{end}}'
+      # Y DESPUÉS también. El apply recrea el contenedor de n8n en cada
+      # ejecución —lleva la puerta de enlace de la VM en su entorno y WSL la
+      # reasigna en cada reinicio—, de modo que puede dejarlo parado o sin red
+      # justo después de que la primera pasada lo hubiera dejado bien. Esta
+      # segunda pasada no hace nada si todo quedó sano.
+      - task: containers:start
       - '{{.TF}} -chdir={{.TFDIR}} output -json urls'
 
   down:

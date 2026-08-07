@@ -169,6 +169,16 @@ tercero fallaría con razón.
 
 Al terminar, `task down` para la VM de Podman y devuelve la memoria.
 
+### No me conecto
+
+| Síntoma | Causa |
+|---|---|
+| `4200` no responde | `task e2e` levanta el dev server de Angular **sólo mientras corren los tests** y lo mata al acabar. Para navegar hace falta `task frontend:dev` (o `task dev`). |
+| `4200` va en `localhost` pero no en `127.0.0.1` | El dev server de Angular escucha **sólo en `::1`**, la dirección de loopback de IPv6. `localhost` resuelve ahí primero; `127.0.0.1` es IPv4 y no encuentra a nadie. Usa `localhost`. El backend no tiene este problema: escucha en `::` (doble pila) y responde en las dos. |
+| `8080/` devuelve 401 | No hay página en la raíz. La API vive en `/api/v2/…` y lo que se abre en el navegador es `/swagger-ui.html`. |
+| El backend murió solo | Se cayó Postgres debajo. `task down` para la VM y con ella la base; el backend no sobrevive a eso. Arranca el stack antes que el backend. |
+| `5678` no responde tras `task up` | Era un fallo de red de Podman al arrancar contenedores parados: alguno se quedaba sin IP, o dos recibían la misma y n8n acababa hablando consigo mismo. `task up` lo detecta y lo corrige solo. |
+
 ### Consola de tareas
 
 Si prefieres botones a terminales:

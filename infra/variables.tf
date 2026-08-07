@@ -78,6 +78,10 @@ variable "services" {
     internal_port  = number
     published_port = number
 
+    # Segundo puerto a publicar, para servicios que exponen dos cosas por
+    # separado. Lo usa MinIO: la API S3 en 9000 y su consola web en 9001.
+    extra_port = optional(number)
+
     # Null significa "sin volumen": el bloque dynamic de abajo no se emite.
     volume_path = optional(string)
     memory_mb   = optional(number, 512)
@@ -144,10 +148,12 @@ variable "services" {
       image          = "docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
       internal_port  = 9000
       published_port = 9000
-      volume_path    = "/data"
-      memory_mb      = 512
-      command        = ["server", "/data", "--console-address", ":9001"]
-      healthcheck    = { test = ["CMD", "mc", "ready", "local"] }
+      # La consola web, que `--console-address` sirve aparte de la API S3.
+      extra_port  = 9001
+      volume_path = "/data"
+      memory_mb   = 512
+      command     = ["server", "/data", "--console-address", ":9001"]
+      healthcheck = { test = ["CMD", "mc", "ready", "local"] }
     }
 
     automation = {

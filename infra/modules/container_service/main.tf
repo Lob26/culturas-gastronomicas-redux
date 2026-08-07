@@ -59,6 +59,19 @@ resource "docker_container" "this" {
     ip = "127.0.0.1"
   }
 
+  # Segundo puerto opcional. Lo necesita MinIO, que sirve la API S3 en 9000 y
+  # su consola web en otro puerto distinto: sin publicarlo, la consola existe
+  # dentro del contenedor pero no se puede abrir desde el anfitrión — que es
+  # exactamente lo que pasaba, mientras el Taskfile y el README la anunciaban.
+  dynamic "ports" {
+    for_each = var.service.extra_port == null ? [] : [var.service.extra_port]
+    content {
+      internal = ports.value
+      external = ports.value
+      ip       = "127.0.0.1"
+    }
+  }
+
   dynamic "volumes" {
     for_each = local.has_volume ? [var.service.volume_path] : []
     content {

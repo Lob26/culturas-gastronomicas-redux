@@ -22,6 +22,7 @@ variable "service" {
     internal_port  = number
     published_port = number
     volume_path    = optional(string)
+    extra_port     = optional(number)
     memory_mb      = optional(number, 512)
     env            = optional(map(string), {})
     command        = optional(list(string), [])
